@@ -1,0 +1,504 @@
+import cmd
+import sqlite3
+import feedparser
+from newspaper import Article
+import subprocess
+import tempfile
+import os
+from urllib.parse import urlparse
+import re
+import sys
+
+########################################################################
+def check_dependencies(commands):
+    missing = []
+    for cmd in commands:
+        result = subprocess.run(['command', '-v', cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=True)
+        if result.returncode != 0:
+            missing.append(cmd)
+    return missing
+
+required_cmds = ["git", "festival", "xsel", "lame", "mpv"]
+missing_cmds = check_dependencies(required_cmds)
+
+if missing_cmds:
+    print(f"The following dependencies are missing: {', '.join(missing_cmds)}")
+    yn = input("Do you want to install them now? [Y/n] ").strip()
+    if yn.lower() in ["", "y", "yes"]:
+        subprocess.run(['sudo', 'apt', 'update'])
+        for pkg in ["festival", "xsel", "lame", "mpv"]:
+            if pkg in missing_cmds:
+                subprocess.run(['sudo', 'apt', 'install', '-y', pkg])
+    else:
+        print("Cannot continue without required dependencies.")
+        sys.exit(1)
+else:
+    print("All dependencies are satisfied. Continuing...")
+########################################################################
+DB_FILENAME = "news.db"
+MPV3_SCRIPT = os.path.expanduser("~/.local/bin/mpv3")
+print("Welcome to brief - RSS/Article Reader with TTS") 
+class BriefShell(cmd.Cmd):
+    intro = "Type `cmd` to view commands and `help` or `?` for help"
+    prompt = "> "
+    def __init__(self):
+        super().__init__()
+        self.conn = sqlite3.connect(DB_FILENAME)
+        self.conn.row_factory = sqlite3.Row
+        self.create_tables()
+        self.playback_speed = 0.5
+
+    def create_tables(self):
+        c = self.conn.cursor()
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS rss_feeds (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                url TEXT UNIQUE NOT NULL
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS article (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                url TEXT UNIQUE,
+                title TEXT,
+                content TEXT,
+                source TEXT,
+                fetched_date TEXT
+            )
+        """)
+        self.conn.commit()
+
+    @staticmethod
+    def parse_id_string(id_string):
+        ids = set()
+        parts = [part.strip() for part in id_string.split(',')]
+        for part in parts:
+            if '-' in part:
+                try:
+                    start, end = map(int, part.split('-', 1))
+                    if start > end:
+                        print(f"Ignoring invalid range: {part}")
+                        continue
+                    ids.update(range(start, end + 1))
+                except ValueError:
+                    print(f"Ignoring invalid range: {part}")
+            else:
+                try:
+                    i = int(part)
+                    ids.add(i)
+                except ValueError:
+                    print(f"Ignoring invalid article ID: {part}")
+        return sorted(ids)
+
+    def renumber_rss_feed_ids(self):
+        c = self.conn.cursor()
+        c.execute("SELECT id FROM rss_feeds ORDER BY id ASC")
+        rows = c.fetchall()
+        for new_id, row in enumerate(rows, start=1):
+            old_id = row['id']
+            if old_id != new_id:
+                c.execute("UPDATE rss_feeds SET id = ? WHERE id = ?", (new_id, old_id))
+        self.conn.commit()
+
+    def reset_sqlite_autoincrement_for_rss(self):
+        c = self.conn.cursor()
+        c.execute("SELECT MAX(id) AS max_id FROM rss_feeds")
+        row = c.fetchone()
+        max_id = row['max_id'] if row and row['max_id'] is not None else 0
+        c.execute("UPDATE sqlite_sequence SET seq = ? WHERE name = 'rss_feeds'", (max_id,))
+        self.conn.commit()
+########################################################################
+    # --- Article ---
+    def do_article(self, arg):
+        """
+Manage article:
+article list                  - list all articles
+article read <ids/ranges>     - read specified articles and ranges (e.g., 1-3,5,7-10)
+article read speed <value>    - set playback speed
+article remove <ids/ranges>   - remove specified articles and ranges (e.g., 1-3,5,7-10)
+        """
+        args = arg.split()
+        if not args or args[0] == "":
+            print("Usage: article list | article read ... | article remove ...")
+            return
+        
+        # list
+        cmd = args[0]
+        if cmd == "list":
+            c = self.conn.cursor()
+            c.execute("SELECT id, title, source FROM article ORDER BY id ASC")
+            articles = c.fetchall()
+            if not articles:
+                print("No articles saved yet")
+                return
+            for a in articles:
+                print(f"{a['id']}. {a['title']} (source: {a['source']})")
+
+        # read
+        elif cmd == "read":
+            if len(args) < 2:
+                print("Usage: article read <ids/ranges> | article read * | article read speed <value>")
+                return
+
+            if not hasattr(self, 'playback_speed'):
+                self.playback_speed = 1.0
+
+            if args[1].lower() == "speed":
+                if len(args) < 3:
+                    print("Usage: article read speed <value>")
+                    return
+                try:
+                    speed = float(args[2])
+                    if speed <= 0:
+                        raise ValueError()
+                    self.playback_speed = speed
+                    print(f"Playback speed set to {speed}x")
+                except ValueError:
+                    print("Invalid speed value. Please enter a positive number, e.g. 1.0, 1.5, 2.0")
+                return
+
+            c = self.conn.cursor()
+
+            if args[1] == "*":
+                c.execute("SELECT id FROM article ORDER BY id ASC")
+                rows = c.fetchall()
+                articles_to_read = [r['id'] for r in rows]
+                if not articles_to_read:
+                    print("No articles available to read.")
+                    return
+            else:
+                id_string = ' '.join(args[1:])
+                articles_to_read = self.parse_id_string(id_string)
+                if not articles_to_read:
+                    print("No valid article IDs to read.")
+                    return
+
+            total = len(articles_to_read)
+            for idx, article_id in enumerate(articles_to_read, 1):
+                c.execute("SELECT title, source, content FROM article WHERE id = ?", (article_id,))
+                row = c.fetchone()
+                if not row:
+                    print(f"No article found with ID {article_id}")
+                    continue
+
+                title = row['title']
+                source = row['source']
+                site_name = urlparse(source).netloc if source else "(unknown website)"
+
+                content = row['content']
+                if not content or content.strip() == "":
+                    print(f"Article ID {article_id} content empty")
+                    continue
+
+                print(f"Title: {title}")
+                print(f"Website: {site_name}")
+                print(f"Reading article {idx} / {total} (ID {article_id})...")
+
+                with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8', suffix=".txt") as tf:
+                    tf.write(content)
+                    temp_filename = tf.name
+
+                try:
+                    with open(os.devnull, 'w') as devnull:
+                        subprocess.run(['xdg-open', temp_filename], stderr=devnull, stdout=devnull, check=False)
+
+                    subprocess.run([
+                        MPV3_SCRIPT,
+                        "--play-once",
+                        "--no-save",
+                        "--hide-encoding",
+                        "--speed", str(self.playback_speed),
+                        "--file",
+                        temp_filename
+                    ], check=True)
+                except subprocess.CalledProcessError as e:
+                    print(f"TTS playback failed for article {article_id}: {e}")
+                finally:
+                    os.remove(temp_filename)
+        # remove       
+        elif cmd == "remove":
+            def renumber_article_ids():
+                c = self.conn.cursor()
+                c.execute("SELECT id FROM article ORDER BY id ASC")
+                rows = c.fetchall()
+                for new_id, row in enumerate(rows, start=1):
+                    old_id = row['id']
+                    if old_id != new_id:
+                        c.execute("UPDATE article SET id = ? WHERE id = ?", (new_id, old_id))
+                self.conn.commit()
+
+            def reset_sqlite_autoincrement():
+                c = self.conn.cursor()
+                c.execute("DELETE FROM sqlite_sequence WHERE name = 'article'")
+                self.conn.commit()
+
+            if len(args) < 2:
+                print("Usage: article remove <article_id> [<article_id> ...] or article remove *")
+                return
+
+            c = self.conn.cursor()
+
+            if args[1] == "*":
+                confirm = input("Are you sure you want to remove ALL articles? (y/n): ").strip().lower()
+                if confirm == 'y':
+                    c.execute("DELETE FROM article")
+                    self.conn.commit()
+                    print("All articles removed.")
+                    renumber_article_ids()
+                    reset_sqlite_autoincrement()
+                else:
+                    print("Remove all cancelled.")
+            else:
+                id_string = ' '.join(args[1:])
+                article_ids = self.parse_id_string(id_string)
+                if not article_ids:
+                    print("No valid article IDs to remove.")
+                    return
+
+                removed_any = False
+                for art_id in article_ids:
+                    c.execute("DELETE FROM article WHERE id = ?", (art_id,))
+                    if c.rowcount > 0:
+                        print(f"Removed article ID {art_id}")
+                        removed_any = True
+                    else:
+                        print(f"No article found with ID {art_id}")
+                if removed_any:
+                    self.conn.commit()
+                    renumber_article_ids()
+                    reset_sqlite_autoincrement()
+
+        else:
+            print("Unknown article command. Available commands: list, read, remove")
+########################################################################
+    # --- RSS commands ---
+    def do_rss(self, arg):
+        "RSS feed commands"
+        args = arg.split()
+        if not args or args[0] == "":
+            print("Usage: rss add <feed_url> | rss fetch <feed_id> <number> | rss list | rss remove <id>")
+            return
+        cmd = args[0]
+
+        # add
+        if cmd == "add":
+            if len(args) < 2:
+                print("Usage: rss add <feed_url>")
+                return
+            url = args[1]
+
+            try:
+                c = self.conn.cursor()
+                c.execute("INSERT INTO rss_feeds (url) VALUES (?)", (url,))
+                self.conn.commit()
+                print(f"Added RSS feed: {url}")
+            except sqlite3.IntegrityError:
+                print(f"RSS feed already exists: {url}")
+
+        # fetch
+        if cmd == "fetch":
+            if len(args) != 3:
+                print("Usage: rss fetch <feed_id|*> <number_of_articles>")
+                return
+            num_to_fetch_str = args[2]
+            try:
+                num_to_fetch = int(num_to_fetch_str)
+                if num_to_fetch < 1:
+                    raise ValueError()
+            except ValueError:
+                print("Please specify a number greater than 0, e.g. rss fetch 1 4 or rss fetch * 3")
+                return
+
+            c = self.conn.cursor()
+            
+            if args[1] == "*":
+                c.execute("SELECT id, url FROM rss_feeds ORDER BY id ASC")
+                feeds = c.fetchall()
+                if not feeds:
+                    print("No RSS feeds to fetch from")
+                    return
+                for feed in feeds:
+                    print(f"Fetching {num_to_fetch} entries from feed ID {feed['id']}: {feed['url']}")
+                    parsed = feedparser.parse(feed['url'])
+                    count = 0
+                    for entry in parsed.entries[:num_to_fetch]:
+                        url = entry.link
+                        if url:
+                            c.execute("SELECT id FROM article WHERE url = ?", (url,))
+                            if c.fetchone():
+                                print(f"Already have article: {url}")
+                                continue
+                            try:
+                                article = Article(url)
+                                article.download()
+                                article.parse()
+                                title = article.title
+                                content = article.text
+                                fetched_date = article.publish_date.isoformat() if article.publish_date else None
+                                c.execute("""
+                                    INSERT INTO article (url, title, content, source, fetched_date)
+                                    VALUES (?, ?, ?, ?, ?)
+                                """, (url, title, content, feed['url'], fetched_date))
+                                self.conn.commit()
+                                print(f"Saved article: {title}")
+                                count += 1
+                            except Exception as e:
+                                print(f"Failed to parse article {url}: {e}")
+                    if count == 0:
+                        print("No new articles were added for this feed.")
+                    else:
+                        print(f"Finished fetching {count} new articles for this feed.")
+      
+            else:
+                try:
+                    feed_id = int(args[1])
+                except ValueError:
+                    print("Feed ID must be an integer or '*'.")
+                    return
+
+                c.execute("SELECT url FROM rss_feeds WHERE id = ?", (feed_id,))
+                feed = c.fetchone()
+                if not feed:
+                    print(f"No RSS feed found with ID {feed_id}")
+                    return
+
+                print(f"Fetching {num_to_fetch} entries from feed ID {feed_id}: {feed['url']}")
+                parsed = feedparser.parse(feed['url'])
+                count = 0
+                for entry in parsed.entries[:num_to_fetch]:
+                    url = entry.link
+                    if url:
+                        c.execute("SELECT id FROM article WHERE url = ?", (url,))
+                        if c.fetchone():
+                            print(f"Already have article: {url}")
+                            continue
+                        try:
+                            article = Article(url)
+                            article.download()
+                            article.parse()
+                            title = article.title
+                            content = article.text
+                            fetched_date = article.publish_date.isoformat() if article.publish_date else None
+                            c.execute("""
+                                INSERT INTO article (url, title, content, source, fetched_date)
+                                VALUES (?, ?, ?, ?, ?)
+                            """, (url, title, content, feed['url'], fetched_date))
+                            self.conn.commit()
+                            print(f"Saved article: {title}")
+                            count += 1
+                        except Exception as e:
+                            print(f"Failed to parse article {url}: {e}")
+                if count == 0:
+                    print("No new articles were added.")
+                else:
+                    print(f"Finished fetching {count} new articles.")
+
+        # list
+        elif cmd == "list":
+            c = self.conn.cursor()
+            c.execute("SELECT id, url FROM rss_feeds ORDER BY id ASC")
+            feeds = c.fetchall()
+            if not feeds:
+                print("No RSS feeds added yet")
+                return
+            for f in feeds:
+                print(f"{f['id']}. {f['url']}")
+
+        # remove
+        elif cmd == "remove":
+            if len(args) < 2:
+                print("Usage: rss remove <feed_id>")
+                return
+            try:
+                feed_id = int(args[1])
+            except ValueError:
+                print("ERROR: Provide a valid feed ID")
+                return
+
+            c = self.conn.cursor()
+            c.execute("DELETE FROM rss_feeds WHERE id = ?", (feed_id,))
+            if c.rowcount > 0:
+                self.conn.commit()
+                print(f"Removed RSS feed ID {feed_id}")
+                self.renumber_rss_feed_ids()
+                self.reset_sqlite_autoincrement_for_rss()
+            else:
+                print(f"No RSS feed found with ID {feed_id}")
+
+
+        else:
+            print("Unknown rss command. Available: add, fetch, list, remove")
+########################################################################
+    # --- Manual URL add command ---
+    def do_url(self, arg):
+        """URL command with subcommands: url add <article_url>"""
+        args = arg.split()
+        if not args:
+            print("Usage: url add <article_url>")
+            return
+        cmd = args[0]
+        
+        # add
+        if cmd == "add":
+            if len(args) < 2:
+                print("Usage: url add <article_url>")
+                return
+            url = args[1]
+            c = self.conn.cursor()
+            c.execute("SELECT id FROM article WHERE url = ?", (url,))
+            if c.fetchone():
+                print(f"Already have article: {url}")
+                return
+            try:
+                article = Article(url)
+                article.download()
+                article.parse()
+                title = article.title
+                content = article.text
+                fetched_date = article.publish_date.isoformat() if article.publish_date else None
+                c.execute("""
+                    INSERT INTO article (url, title, content, source, fetched_date)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (url, title, content, url, fetched_date))
+                self.conn.commit()
+                print(f"Saved article: {title}")
+            except Exception as e:
+                print(f"Failed to parse article {url}: {e}")
+        
+        else:
+            print("Unknown url command. Available: add")
+########################################################################
+    # --- Lists all commands that can be done ---
+    def do_cmd(self, arg):
+        """Lists all available commands"""
+        commands = ["article\n", "rss\n", "url\n", "exit"]
+        print(''.join(commands))
+########################################################################
+    # --- Shows help commands ---
+    def do_help(self, arg):
+        """Shows help for commands"""
+        if arg:
+            return super().do_help(arg)
+        else:
+            commands = [cmd[3:] for cmd in dir(self) if cmd.startswith('do_')]
+            max_len = max(len(cmd) for cmd in commands)
+            for cmd in sorted(commands):
+                func = getattr(self, 'do_' + cmd)
+                doc = func.__doc__.strip().split('\n')[0] if func.__doc__ else ''
+                print(f"{cmd.ljust(max_len)} {doc}")
+########################################################################
+    # --- Exit the script ---
+    def do_exit(self, arg):
+        """Exit the CLI"""
+        print("Goodbye!")
+        self.conn.close()
+        return True
+########################################################################
+if __name__ == '__main__':
+    shell = BriefShell()
+    while True:
+        try:
+            shell.cmdloop()
+            break
+        except KeyboardInterrupt:
+            print("\nPress 'exit' to quit.")
