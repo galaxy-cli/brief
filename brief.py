@@ -286,17 +286,18 @@ article remove <ids/ranges>   - remove specified articles and ranges (e.g., 1-3,
                 print("Usage: rss add <feed_url>")
                 return
             url = args[1]
-
             try:
                 c = self.conn.cursor()
                 c.execute("INSERT INTO rss_feeds (url) VALUES (?)", (url,))
                 self.conn.commit()
                 print(f"Added RSS feed: {url}")
-            except sqlite3.IntegrityError:
-                print(f"RSS feed already exists: {url}")
+            except sqlite3.OperationalError as e:
+                print(f"Database write error: {e}")
+            except sqlite3.Error as e:
+                print(f"Database error: {e}")
 
         # fetch
-        if cmd == "fetch":
+        elif cmd == "fetch":
             if len(args) != 3:
                 print("Usage: rss fetch <feed_id|*> <number_of_articles>")
                 return
@@ -404,26 +405,33 @@ article remove <ids/ranges>   - remove specified articles and ranges (e.g., 1-3,
             for f in feeds:
                 print(f"{f['id']}. {f['url']}")
 
-        # remove
         elif cmd == "remove":
             if len(args) < 2:
-                print("Usage: rss remove <feed_id>")
+                print("Usage: rss remove <feed_id> [<feed_id> ...]")
                 return
-            try:
-                feed_id = int(args[1])
-            except ValueError:
-                print("ERROR: Provide a valid feed ID")
+            feed_ids = []
+            for arg in args[1:]:
+                try:
+                    feed_ids.append(int(arg))
+                except ValueError:
+                    print(f"Invalid feed ID: {arg}")
+            if not feed_ids:
+                print("No valid feed IDs provided to remove.")
                 return
-
             c = self.conn.cursor()
-            c.execute("DELETE FROM rss_feeds WHERE id = ?", (feed_id,))
-            if c.rowcount > 0:
+            removed_any = False
+            for feed_id in feed_ids:
+                c.execute("DELETE FROM rss_feeds WHERE id = ?", (feed_id,))
+                if c.rowcount > 0:
+                    print(f"Removed RSS feed ID {feed_id}")
+                    removed_any = True
+                else:
+                    print(f"No RSS feed found with ID {feed_id}")
+            if removed_any:
                 self.conn.commit()
-                print(f"Removed RSS feed ID {feed_id}")
                 self.renumber_rss_feed_ids()
                 self.reset_sqlite_autoincrement_for_rss()
-            else:
-                print(f"No RSS feed found with ID {feed_id}")
+
 
 
         else:
