@@ -165,7 +165,7 @@ article - *                         - delete all articles (with confirmation)
                 return
             c = self.conn.cursor()
             if args[1] == "*":
-                confirm = input("Are you sure to delete ALL articles? (y/n): ").lower()
+                confirm = input("Are you sure to delete ALL articles? (y/n) ").lower()
                 if confirm != "y":
                     print("Operation cancelled.")
                     return
@@ -303,17 +303,24 @@ article - *                         - delete all articles (with confirmation)
         # Delete feeds with rss -
         if cmd == "-":
             if len(args) < 2:
-                print("Usage: rss - <feed_id> [<feed_id> ...]")
+                print("Usage: rss - <feed_id> [<feed_id> ...] (comma separated also supported)")
                 return
+            
+            # Join all arguments after '-' (e.g. "1, 5,6") into one string, then split by commas
+            feed_id_str = ' '.join(args[1:])
+            # Split by comma and strip whitespace around IDs, filter out empty strings
+            feed_ids_raw = [s.strip() for s in feed_id_str.split(',') if s.strip()]
+            
             feed_ids = []
-            for arg_id in args[1:]:
+            for id_str in feed_ids_raw:
                 try:
-                    feed_ids.append(int(arg_id))
+                    feed_ids.append(int(id_str))
                 except ValueError:
-                    print(f"Invalid feed ID: {arg_id}")
+                    print(f"Invalid feed ID: {id_str}")
             if not feed_ids:
                 print("No valid feed IDs provided to remove.")
                 return
+            
             c = self.conn.cursor()
             removed_any = False
             for feed_id in feed_ids:
