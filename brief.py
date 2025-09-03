@@ -36,7 +36,7 @@ else:
     print("All dependencies are satisfied. Continuing...")
 ########################################################################
 DB_FILENAME = "news.db"
-MPV3_SCRIPT = os.path.expanduser("~/.local/bin/mpv3")
+TTS_SCRIPT = os.path.expanduser("~/.local/bin/tts")
 print("Welcome to brief - RSS/Article Reader with TTS") 
 class BriefShell(cmd.Cmd):
     intro = "Type `cmd` to view commands and `help` or `?` for help"
@@ -158,8 +158,8 @@ article - *                         - delete all articles (with confirmation)
                 renumber_article_ids()
                 reset_sqlite_autoincrement()
 
+        # -
         if cmd == "-":
-            # Delete-only command
             if len(args) < 2:
                 print("Usage: article - <ids/ranges> or article - * to delete articles")
                 return
@@ -184,6 +184,7 @@ article - *                         - delete all articles (with confirmation)
             delete_articles(articles_to_delete)
             return
 
+        # list
         if cmd == "list":
             c = self.conn.cursor()
             c.execute("SELECT id, title, source FROM article ORDER BY id ASC")
@@ -198,8 +199,8 @@ article - *                         - delete all articles (with confirmation)
                 print(f"{a['id']}. {a['title']} (source: {site_name})")
             return
 
+        # read
         if cmd == "read":
-            # Handle playback speed setting command
             if len(args) > 1 and args[1].lower() == "speed":
                 if len(args) < 3:
                     print("Usage: article read speed <value>")
@@ -214,7 +215,6 @@ article - *                         - delete all articles (with confirmation)
                     print("Invalid speed value. Please enter a positive number.")
                 return
 
-            # Check for trailing '-' flag to delete after reading
             delete_after_read = False
             if args[-1] == "-":
                 delete_after_read = True
@@ -269,27 +269,21 @@ article - *                         - delete all articles (with confirmation)
                     with open(os.devnull, 'w') as devnull:
                         subprocess.run(['xdg-open', temp_filename], stderr=devnull, stdout=devnull, check=False)
                     subprocess.run([
-                        MPV3_SCRIPT,
-                        "--play-once",
-                        "--no-save",
-                        "--hide-encoding",
-                        "--speed", str(self.playback_speed),
+                        TTS_SCRIPT,
                         "--file",
-                        temp_filename
-                    ], check=True)
+                        temp_filename,
+                        "--speed", str(self.playback_speed)
+                    ])
                 except subprocess.CalledProcessError as e:
                     print(f"TTS playback failed for article {article_id}: {e}")
                 finally:
                     os.remove(temp_filename)
 
-            # Delete articles after reading if flagged
             if delete_after_read:
                 delete_articles(articles_to_read)
             return
 
         print(f"Unknown article command '{cmd}'. Available commands: list, read, -")
-
-
 ########################################################################
     # --- RSS commands ---
     def do_rss(self, arg):
@@ -300,15 +294,12 @@ article - *                         - delete all articles (with confirmation)
             return
         cmd = args[0]
 
-        # Delete feeds with rss -
         if cmd == "-":
             if len(args) < 2:
                 print("Usage: rss - <feed_id> [<feed_id> ...] (comma separated also supported)")
                 return
             
-            # Join all arguments after '-' (e.g. "1, 5,6") into one string, then split by commas
             feed_id_str = ' '.join(args[1:])
-            # Split by comma and strip whitespace around IDs, filter out empty strings
             feed_ids_raw = [s.strip() for s in feed_id_str.split(',') if s.strip()]
             
             feed_ids = []
@@ -336,7 +327,7 @@ article - *                         - delete all articles (with confirmation)
                 self.reset_sqlite_autoincrement_for_rss()
             return
 
-        # Add feed command
+        # add
         if cmd == "add":
             if len(args) < 2:
                 print("Usage: rss add <feed_url>")
@@ -353,17 +344,15 @@ article - *                         - delete all articles (with confirmation)
                 print(f"Database error: {e}")
             return
 
-        # Fetch command
+        # fetch
         if cmd == "fetch":
             if len(args) != 3:
                 print("Usage: rss fetch <feed_id|*> <number_of_articles>")
                 return
             
-            # Swap the positions:
             feed_id_str = args[1]
             num_to_fetch_str = args[2]
 
-            # Parse number of articles to fetch
             try:
                 num_to_fetch = int(num_to_fetch_str)
                 if num_to_fetch < 1:
@@ -457,7 +446,6 @@ article - *                         - delete all articles (with confirmation)
                     print(f"Finished fetching {count} new articles.")
             return
 
-
         # List command
         if cmd == "list":
             c = self.conn.cursor()
@@ -471,7 +459,6 @@ article - *                         - delete all articles (with confirmation)
             return
 
         print("Unknown rss command. Available: add, fetch, list, -")
-
 ########################################################################
     # --- Manual URL add command ---
     def do_url(self, arg):
