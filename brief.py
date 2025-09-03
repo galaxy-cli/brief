@@ -10,30 +10,76 @@ import re
 import sys
 
 ########################################################################
-def check_dependencies(commands):
+def check_apt_dependencies(packages):
     missing = []
-    for cmd in commands:
-        result = subprocess.run(['command', '-v', cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=True)
+    for pkg in packages:
+        result = subprocess.run(['dpkg', '-s', pkg], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if result.returncode != 0:
-            missing.append(cmd)
+            missing.append(pkg)
     return missing
 
-required_cmds = ["git", "festival", "xsel", "lame", "mpv"]
-missing_cmds = check_dependencies(required_cmds)
+def check_pip_dependencies(packages):
+    import pkg_resources
+    missing = []
+    for pkg in packages:
+        try:
+            pkg_resources.get_distribution(pkg)
+        except pkg_resources.DistributionNotFound:
+            missing.append(pkg)
+    return missing
 
-if missing_cmds:
-    print(f"The following dependencies are missing: {', '.join(missing_cmds)}")
-    yn = input("Do you want to install them now? [Y/n] ").strip()
-    if yn.lower() in ["", "y", "yes"]:
-        subprocess.run(['sudo', 'apt', 'update'])
-        for pkg in ["festival", "xsel", "lame", "mpv"]:
-            if pkg in missing_cmds:
-                subprocess.run(['sudo', 'apt', 'install', '-y', pkg])
+def install_packages():
+    apt_packages = [
+        "git",
+        "festival",
+        "xsel",
+        "python3-pip",
+        "libxml2-dev",
+        "libxslt1-dev",
+        "python3-dev",
+        "libjpeg-dev",
+        "zlib1g-dev",
+        "build-essential"
+    ]
+
+    pip_packages = [
+        "feedparser",
+        "newspaper3k",
+        "lxml_html_clean",
+        "pyyaml",
+        "cssselect",
+        "Pillow"
+    ]
+
+    print("Checking system packages...")
+    missing_apt = check_apt_dependencies(apt_packages)
+    if missing_apt:
+        print(f"Missing apt packages: {', '.join(missing_apt)}")
+        yn = input("Install missing apt packages now? [Y/n] ").strip()
+        if yn.lower() in ["", "y", "yes"]:
+            subprocess.run(['sudo', 'apt', 'update'])
+            subprocess.run(['sudo', 'apt', 'install', '-y'] + missing_apt)
+        else:
+            print("Cannot continue without required apt packages.")
+            sys.exit(1)
     else:
-        print("Cannot continue without required dependencies.")
-        sys.exit(1)
-else:
-    print("All dependencies are satisfied. Continuing...")
+        print("All required apt packages are installed.")
+
+    print("Checking Python pip packages...")
+    missing_pip = check_pip_dependencies(pip_packages)
+    if missing_pip:
+        print(f"Missing pip packages: {', '.join(missing_pip)}")
+        yn = input("Install missing pip packages now? [Y/n] ").strip()
+        if yn.lower() in ["", "y", "yes"]:
+            subprocess.run([sys.executable, '-m', 'pip', 'install'] + missing_pip)
+        else:
+            print("Cannot continue without required pip packages.")
+            sys.exit(1)
+    else:
+        print("All required pip packages are installed.")
+
+if __name__ == "__main__":
+    install_packages()
 ########################################################################
 DB_FILENAME = "news.db"
 TTS_SCRIPT = os.path.expanduser("~/.local/bin/tts")
