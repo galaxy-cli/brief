@@ -12,20 +12,10 @@ import sys
 ########################################################################
 def check_apt_dependencies(packages):
     missing = []
-    for pkg in packages:
-        result = subprocess.run(['dpkg', '-s', pkg], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        if result.returncode != 0:
-            missing.append(pkg)
     return missing
 
 def check_pip_dependencies(packages):
-    import pkg_resources
     missing = []
-    for pkg in packages:
-        try:
-            pkg_resources.get_distribution(pkg)
-        except pkg_resources.DistributionNotFound:
-            missing.append(pkg)
     return missing
 
 def install_packages():
@@ -55,12 +45,12 @@ def install_packages():
     missing_apt = check_apt_dependencies(apt_packages)
     if missing_apt:
         print(f"Missing apt packages: {', '.join(missing_apt)}")
-        yn = input("Install missing apt packages now? [Y/n] ").strip()
+        yn = input("Install missing apt packages now? (y/n) ").strip()
         if yn.lower() in ["", "y", "yes"]:
             subprocess.run(['sudo', 'apt', 'update'])
             subprocess.run(['sudo', 'apt', 'install', '-y'] + missing_apt)
         else:
-            print("Cannot continue without required apt packages.")
+            print("Cannot continue without required apt packages")
             sys.exit(1)
     else:
         print("All required apt packages are installed.")
@@ -73,7 +63,7 @@ def install_packages():
         if yn.lower() in ["", "y", "yes"]:
             subprocess.run([sys.executable, '-m', 'pip', 'install'] + missing_pip)
         else:
-            print("Cannot continue without required pip packages.")
+            print("Cannot continue without required pip packages")
             sys.exit(1)
     else:
         print("All required pip packages are installed.")
