@@ -156,7 +156,6 @@ article - *                         - delete all articles (with confirmation)
         if not arg:
             print("Usage: article list | article read ... | article read speed <value> | article - <ids/ranges>")
             return
-
         args = arg.split()
         cmd = args[0]
 
@@ -248,12 +247,11 @@ article - *                         - delete all articles (with confirmation)
                 except ValueError:
                     print("Invalid speed value. Please enter a positive number.")
                 return
-
             ids_args = args[1:]
+            
             if not ids_args:
                 print("Usage: article read <ids/ranges> | article read *")
                 return
-
             c = self.conn.cursor()
             if ids_args[0] == "*":
                 c.execute("SELECT id FROM article ORDER BY id ASC")
@@ -268,10 +266,9 @@ article - *                         - delete all articles (with confirmation)
                 if not articles_to_read:
                     print("No valid article IDs to read.")
                     return
-
+            
             if not hasattr(self, 'playback_speed'):
                 self.playback_speed = 1.0
-
             total = len(articles_to_read)
             for idx, article_id in enumerate(articles_to_read, 1):
                 c.execute("SELECT title, source, content, publish_date FROM article WHERE id = ?", (article_id,))
@@ -309,10 +306,8 @@ article - *                         - delete all articles (with confirmation)
                     print(f"TTS playback failed for article {article_id}: {e}")
                 finally:
                     os.remove(temp_filename)
-
                 if delete_after_read:
                     delete_articles([article_id])
-
             return
 
         print(f"Unknown article command '{cmd}'. Available commands: list, read, -")
@@ -326,6 +321,7 @@ article - *                         - delete all articles (with confirmation)
             return
         cmd = args[0]
 
+        # -
         if cmd == "-":
             if len(args) < 2:
                 print("Usage: rss - <feed_id> [<feed_id> ...] (comma separated also supported)")
@@ -333,7 +329,6 @@ article - *                         - delete all articles (with confirmation)
             
             feed_id_str = ' '.join(args[1:])
             feed_ids_raw = [s.strip() for s in feed_id_str.split(',') if s.strip()]
-            
             feed_ids = []
             for id_str in feed_ids_raw:
                 try:
@@ -343,7 +338,6 @@ article - *                         - delete all articles (with confirmation)
             if not feed_ids:
                 print("No valid feed IDs provided to remove.")
                 return
-            
             c = self.conn.cursor()
             removed_any = False
             for feed_id in feed_ids:
@@ -365,8 +359,17 @@ article - *                         - delete all articles (with confirmation)
                 print("Usage: rss add <feed_url>")
                 return
             url = args[1]
+            feed = feedparser.parse(url)
+            if feed.bozo or not hasattr(feed, 'feed') or not feed.feed:
+                print(f"Invalid RSS feed URL or unable to parse feed: {url}")
+                return
             try:
                 c = self.conn.cursor()
+                c.execute("SELECT id FROM rss_feeds WHERE url = ?", (url,))
+                row = c.fetchone()
+                if row is not None:
+                    print("You have already added this RSS feed")
+                    return
                 c.execute("INSERT INTO rss_feeds (url) VALUES (?)", (url,))
                 self.conn.commit()
                 print(f"Added RSS feed: {url}")
@@ -381,10 +384,8 @@ article - *                         - delete all articles (with confirmation)
             if len(args) != 3:
                 print("Usage: rss fetch <feed_id|*> <number_of_articles>")
                 return
-
             num_to_fetch_str = args[1]
             feed_id_str = args[2]
-
             try:
                 num_to_fetch = int(num_to_fetch_str)
                 if num_to_fetch < 1:
@@ -392,9 +393,7 @@ article - *                         - delete all articles (with confirmation)
             except ValueError:
                 print("Please specify a number greater than 0, e.g. rss fetch 1 4 or rss fetch * 3")
                 return
-
             c = self.conn.cursor()
-
             if feed_id_str == "*":
                 c.execute("SELECT id, url FROM rss_feeds ORDER BY id ASC")
                 feeds = c.fetchall()
@@ -445,7 +444,6 @@ article - *                         - delete all articles (with confirmation)
                 if not feed:
                     print(f"No RSS feed found with ID {feed_id}")
                     return
-
                 print(f"Fetching {num_to_fetch} entries from feed ID {feed_id}: {feed['url']}")
                 parsed = feedparser.parse(feed['url'])
                 count = 0
