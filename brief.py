@@ -63,7 +63,8 @@ class BriefShell(cmd.Cmd):
                 title TEXT,
                 content TEXT,
                 source TEXT,
-                fetched_date TEXT
+                fetched_date TEXT,
+                publish_date TEXT
             )
         """)
         self.conn.commit()
@@ -149,9 +150,9 @@ article - *                        - read all articles then delete all (with con
                 c.execute("DELETE FROM article WHERE id = ?", (art_id,))
                 if c.rowcount > 0:
                     removed_any = True
-                    print(f"Deleted article ID {art_id}.")
+                    print(f"Deleted article ID {art_id}")
                 else:
-                    print(f"No article found with ID {art_id}.")
+                    print(f"No article found with ID {art_id}")
             if removed_any:
                 self.conn.commit()
                 renumber_article_ids()
@@ -244,7 +245,7 @@ article - *                        - read all articles then delete all (with con
 
             total = len(articles_to_read)
             for idx, article_id in enumerate(articles_to_read, 1):
-                c.execute("SELECT title, source, content FROM article WHERE id = ?", (article_id,))
+                c.execute("SELECT title, source, content, publish_date FROM article WHERE id = ?", (article_id,))
                 row = c.fetchone()
                 if not row:
                     print(f"No article found with ID {article_id}")
@@ -262,8 +263,8 @@ article - *                        - read all articles then delete all (with con
                 print(f"Website: {site_name}")
                 print(f"Reading article {idx} / {total} (ID {article_id})...")
                 with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8', suffix=".txt") as tf:
-                            tf.write(content)
-                            temp_filename = tf.name
+                    tf.write(content)
+                    temp_filename = tf.name
                 try:
                     with open(os.devnull, 'w') as devnull:
                         subprocess.run(['xdg-open', temp_filename], stderr=devnull, stdout=devnull, check=False)
@@ -280,10 +281,6 @@ article - *                        - read all articles then delete all (with con
                     print(f"TTS playback failed for article {article_id}: {e}")
                 finally:
                     os.remove(temp_filename)
-
-            if delete_after_read:
-                delete_articles(articles_to_read)
-            return
 
         print(f"Unknown article command '{cmd}'. Available commands: list, read, -")
 
