@@ -112,7 +112,7 @@ class BriefShell(cmd.Cmd):
     # --- Article ---
     def do_article(self, arg):
         """
-Manage article:
+    Manage article:
 article list                        - list all articles
 article read <ids/ranges>           - read specified articles and ranges (e.g., 1-3,5,7-10)
 article read speed <value>          - set playback speed
@@ -121,11 +121,12 @@ article read * -                    - read all articles then delete all (with co
 article - <ids/ranges>              - delete specified articles without reading
 article - *                         - delete all articles (with confirmation)
         """
-        args = arg.split()
-        if not args or args[0] == "":
+        arg = arg.strip()
+        if not arg:
             print("Usage: article list | article read ... | article read speed <value> | article - <ids/ranges>")
             return
 
+        args = arg.split()
         cmd = args[0]
 
         def renumber_article_ids():
@@ -158,7 +159,6 @@ article - *                         - delete all articles (with confirmation)
                 renumber_article_ids()
                 reset_sqlite_autoincrement()
 
-        # -
         if cmd == "-":
             if len(args) < 2:
                 print("Usage: article - <ids/ranges> or article - * to delete articles")
@@ -184,7 +184,6 @@ article - *                         - delete all articles (with confirmation)
             delete_articles(articles_to_delete)
             return
 
-        # list
         if cmd == "list":
             c = self.conn.cursor()
             c.execute("SELECT id, title, source FROM article ORDER BY id ASC")
@@ -199,8 +198,14 @@ article - *                         - delete all articles (with confirmation)
                 print(f"{a['id']}. {a['title']} (source: {site_name})")
             return
 
-        # read
         if cmd == "read":
+            # Detect and remove trailing '-' flag
+            delete_after_read = False
+            if len(args) > 1 and args[-1] == "-":
+                delete_after_read = True
+                args = args[:-1]
+
+            # Handle speed command first
             if len(args) > 1 and args[1].lower() == "speed":
                 if len(args) < 3:
                     print("Usage: article read speed <value>")
@@ -215,14 +220,9 @@ article - *                         - delete all articles (with confirmation)
                     print("Invalid speed value. Please enter a positive number.")
                 return
 
-            delete_after_read = False
-            if args[-1] == "-":
-                delete_after_read = True
-                args = args[:-1]  # Remove trailing '-'
-
             ids_args = args[1:]
             if not ids_args:
-                print("Usage: article read <ids/ranges> | article read * | article read speed <value>")
+                print("Usage: article read <ids/ranges> | article read *")
                 return
 
             c = self.conn.cursor()
@@ -266,8 +266,6 @@ article - *                         - delete all articles (with confirmation)
                     tf.write(content)
                     temp_filename = tf.name
                 try:
-                    with open(os.devnull, 'w') as devnull:
-                        subprocess.run(['xdg-open', temp_filename], stderr=devnull, stdout=devnull, check=False)
                     subprocess.run([
                         TTS_SCRIPT,
                         "--file",
@@ -279,11 +277,14 @@ article - *                         - delete all articles (with confirmation)
                 finally:
                     os.remove(temp_filename)
 
-            if delete_after_read:
-                delete_articles(articles_to_read)
+                if delete_after_read:
+                    delete_articles([article_id])
+
             return
 
         print(f"Unknown article command '{cmd}'. Available commands: list, read, -")
+
+
 ########################################################################
     # --- RSS commands ---
     def do_rss(self, arg):
