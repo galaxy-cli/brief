@@ -31,7 +31,6 @@ def install_packages():
         "zlib1g-dev",
         "build-essential"
     ]
-
     pip_packages = [
         "feedparser",
         "newspaper3k",
@@ -40,8 +39,6 @@ def install_packages():
         "cssselect",
         "Pillow"
     ]
-
-    print("Checking system packages...")
     missing_apt = check_apt_dependencies(apt_packages)
     if missing_apt:
         print(f"Missing apt packages: {', '.join(missing_apt)}")
@@ -53,9 +50,7 @@ def install_packages():
             print("Cannot continue without required apt packages")
             sys.exit(1)
     else:
-        print("All required apt packages are installed.")
-
-    print("Checking Python pip packages...")
+        pass
     missing_pip = check_pip_dependencies(pip_packages)
     if missing_pip:
         print(f"Missing pip packages: {', '.join(missing_pip)}")
@@ -66,7 +61,7 @@ def install_packages():
             print("Cannot continue without required pip packages")
             sys.exit(1)
     else:
-        print("All required pip packages are installed.")
+        pass
 ########################################################################
 DB_FILENAME = "news.db"
 TTS_SCRIPT = os.path.expanduser("~/.local/bin/tts")
