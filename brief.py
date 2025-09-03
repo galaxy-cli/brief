@@ -261,16 +261,32 @@ article - *                        - read all articles then delete all (with con
                 print(f"Title: {title}")
                 print(f"Website: {site_name}")
                 print(f"Reading article {idx} / {total} (ID {article_id})...")
-                # ... (playback code)
-                # Similar to your existing code
-                ...
+                with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8', suffix=".txt") as tf:
+                            tf.write(content)
+                            temp_filename = tf.name
+                try:
+                    with open(os.devnull, 'w') as devnull:
+                        subprocess.run(['xdg-open', temp_filename], stderr=devnull, stdout=devnull, check=False)
+                    subprocess.run([
+                        MPV3_SCRIPT,
+                        "--play-once",
+                        "--no-save",
+                        "--hide-encoding",
+                        "--speed", str(self.playback_speed),
+                        "--file",
+                        temp_filename
+                    ], check=True)
+                except subprocess.CalledProcessError as e:
+                    print(f"TTS playback failed for article {article_id}: {e}")
+                finally:
+                    os.remove(temp_filename)
 
             if delete_after_read:
                 delete_articles(articles_to_read)
             return
 
         print(f"Unknown article command '{cmd}'. Available commands: list, read, -")
-        
+
 ########################################################################
     # --- RSS commands ---
     def do_rss(self, arg):
