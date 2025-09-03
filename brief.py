@@ -117,9 +117,9 @@ article list                        - list all articles
 article read <ids/ranges>           - read specified articles and ranges (e.g., 1-3,5,7-10)
 article read speed <value>          - set playback speed
 article read <ids/ranges> -         - read then remove specified articles
-article read * -                    - read all articles then delete them
-article - <ids/ranges>              - read then remove specified articles (alias for above)
-article - *                        - read all articles then delete all (with confirmation)
+article read * -                    - read all articles then delete all (with confirmation)
+article - <ids/ranges>              - delete specified articles without reading
+article - *                         - delete all articles (with confirmation)
         """
         args = arg.split()
         if not args or args[0] == "":
@@ -199,7 +199,7 @@ article - *                        - read all articles then delete all (with con
             return
 
         if cmd == "read":
-            # Check for speed command or speed change
+            # Handle playback speed setting command
             if len(args) > 1 and args[1].lower() == "speed":
                 if len(args) < 3:
                     print("Usage: article read speed <value>")
@@ -213,11 +213,12 @@ article - *                        - read all articles then delete all (with con
                 except ValueError:
                     print("Invalid speed value. Please enter a positive number.")
                 return
-            # Determine if deletion after reading is requested by trailing '-'
+
+            # Check for trailing '-' flag to delete after reading
             delete_after_read = False
             if args[-1] == "-":
                 delete_after_read = True
-                args = args[:-1]
+                args = args[:-1]  # Remove trailing '-'
 
             ids_args = args[1:]
             if not ids_args:
@@ -239,7 +240,6 @@ article - *                        - read all articles then delete all (with con
                     print("No valid article IDs to read.")
                     return
 
-            # Playback speed default
             if not hasattr(self, 'playback_speed'):
                 self.playback_speed = 1.0
 
@@ -282,7 +282,13 @@ article - *                        - read all articles then delete all (with con
                 finally:
                     os.remove(temp_filename)
 
+            # Delete articles after reading if flagged
+            if delete_after_read:
+                delete_articles(articles_to_read)
+            return
+
         print(f"Unknown article command '{cmd}'. Available commands: list, read, -")
+
 
 ########################################################################
     # --- RSS commands ---
@@ -345,7 +351,12 @@ article - *                        - read all articles then delete all (with con
             if len(args) != 3:
                 print("Usage: rss fetch <feed_id|*> <number_of_articles>")
                 return
+            
+            # Swap the positions:
+            feed_id_str = args[1]
             num_to_fetch_str = args[2]
+
+            # Parse number of articles to fetch
             try:
                 num_to_fetch = int(num_to_fetch_str)
                 if num_to_fetch < 1:
@@ -356,7 +367,7 @@ article - *                        - read all articles then delete all (with con
 
             c = self.conn.cursor()
 
-            if args[1] == "*":
+            if feed_id_str == "*":
                 c.execute("SELECT id, url FROM rss_feeds ORDER BY id ASC")
                 feeds = c.fetchall()
                 if not feeds:
@@ -396,7 +407,7 @@ article - *                        - read all articles then delete all (with con
                 return
             else:
                 try:
-                    feed_id = int(args[1])
+                    feed_id = int(feed_id_str)
                 except ValueError:
                     print("Feed ID must be an integer or '*'.")
                     return
@@ -438,6 +449,7 @@ article - *                        - read all articles then delete all (with con
                 else:
                     print(f"Finished fetching {count} new articles.")
             return
+
 
         # List command
         if cmd == "list":
