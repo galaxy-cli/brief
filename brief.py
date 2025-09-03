@@ -381,9 +381,9 @@ article - *                         - delete all articles (with confirmation)
             if len(args) != 3:
                 print("Usage: rss fetch <feed_id|*> <number_of_articles>")
                 return
-            
-            feed_id_str = args[1]
-            num_to_fetch_str = args[2]
+
+            num_to_fetch_str = args[1]
+            feed_id_str = args[2]
 
             try:
                 num_to_fetch = int(num_to_fetch_str)
