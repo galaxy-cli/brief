@@ -21,8 +21,6 @@ The script checks for and optionally installs the following dependencies:
 - [`git`](https://git-scm.com/)
 - [`festival`](https://www.cstr.ed.ac.uk/projects/festival/) – TTS engine
 - [`xsel`](https://linux.die.net/man/1/xsel) – X11 clipboard tool
-- [`lame`](http://lame.sourceforge.net/) – MP3 encoder
-- [`mpv`](https://mpv.io/) – multimedia player
 
 Python dependencies:
 
@@ -153,8 +151,8 @@ IDs are automatically re-numbered when feeds/articles are removed.
 - **Linux only (tested with apt-based systems)**: The dependency installer assumes Debian/Ubuntu (`apt`).  
   If you're on Fedora, Arch, macOS, or BSD, you'll need to manually install the packages.
 - Festival voices can be changed/configured in your system's Festival installation.
-- `mpv3` script (`~/.local/bin/mpv3`) is expected to exist to handle TTS playback.  
-  Update the `MPV3_SCRIPT` path in the code if needed.
+- `tts` script (`~/.local/bin/tts`) is expected to exist to handle TTS playback.  
+  Update the `TTS_SCRIPT` path in the code if needed.
 
 ---
 
