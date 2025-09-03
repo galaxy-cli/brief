@@ -295,6 +295,10 @@ article - *                         - delete all articles (with confirmation)
                     temp_filename = tf.name
                 try:
                     subprocess.run([
+                        "cat",
+                        temp_filename
+                    ])
+                    subprocess.run([
                         TTS_SCRIPT,
                         "--file",
                         temp_filename,
