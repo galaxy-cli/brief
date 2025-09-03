@@ -49,14 +49,29 @@ When you start Brief, it will:
 2. Prompt you to install missing ones (if using a system with `apt`).
 3. Create a SQLite database (`news.db`) to store feeds and articles.
 
+### Alias Shortcut
+
+```
+brief() {
+        source ~/.venv/bin/activate
+        python3 ~/brief.py
+        "$0"
+        deactivate
+}
+```
+
+Add this to your `.bash_aliases` to be able to quick launch `brief`
+
 ---
 
 ## Usage
 
 When launched, Brief enters an **interactive shell**:
 
+```
 Welcome to brief - RSS/Article Reader with TTS
 Type cmd to view commands and help or ? for help
+```
 
 ### Available Commands
 
