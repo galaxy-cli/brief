@@ -30,6 +30,9 @@ def install_packages():
         "libjpeg-dev",
         "zlib1g-dev",
         "build-essential"
+        "python3-gi", 
+        "python3-gi-cairo", 
+        "gir1.2-gtk-4.0"
     ]
     pip_packages = [
         "feedparser",
@@ -227,13 +230,11 @@ article - *                         - delete all articles (with confirmation)
             return
 
         if cmd == "read":
-            # Detect and remove trailing '-' flag
             delete_after_read = False
             if len(args) > 1 and args[-1] == "-":
                 delete_after_read = True
                 args = args[:-1]
 
-            # Handle speed command first
             if len(args) > 1 and args[1].lower() == "speed":
                 if len(args) < 3:
                     print("Usage: article read speed <value>")
@@ -295,9 +296,9 @@ article - *                         - delete all articles (with confirmation)
                     temp_filename = tf.name
                 try:
                     subprocess.run([
-                        "cat",
-                        temp_filename
-                    ])
+                        "xdg-open", 
+                        temp_filename], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+
                     subprocess.run([
                         TTS_SCRIPT,
                         "--file",
