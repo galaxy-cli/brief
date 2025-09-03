@@ -112,18 +112,65 @@ class BriefShell(cmd.Cmd):
     def do_article(self, arg):
         """
 Manage article:
-article list                  - list all articles
-article read <ids/ranges>     - read specified articles and ranges (e.g., 1-3,5,7-10)
-article read speed <value>    - set playback speed
-article remove <ids/ranges>   - remove specified articles and ranges (e.g., 1-3,5,7-10)
+article list                        - list all articles
+article read <ids/ranges>           - read specified articles and ranges (e.g., 1-3,5,7-10)
+article read speed <value>          - set playback speed
+article read <ids/ranges> -         - read then remove specified articles
+article read * -                    - read all articles then delete them
         """
         args = arg.split()
         if not args or args[0] == "":
-            print("Usage: article list | article read ... | article remove ...")
+            print("Usage: article list | article read ... | article read speed <value>")
             return
-        
-        # list
+
         cmd = args[0]
+
+        if cmd not in ["list", "read"]:
+            print(f"Unknown article command '{cmd}'. Available commands: list, read")
+            return
+
+        # Define helper functions inside for renumbering and resetting autoincrement
+        def renumber_article_ids():
+            c = self.conn.cursor()
+            c.execute("SELECT id FROM article ORDER BY id ASC")
+            rows = c.fetchall()
+            for new_id, row in enumerate(rows, start=1):
+                old_id = row['id']
+                if old_id != new_id:
+                    c.execute("UPDATE article SET id = ? WHERE id = ?", (new_id, old_id))
+            self.conn.commit()
+
+        def reset_sqlite_autoincrement():
+            c = self.conn.cursor()
+            c.execute("DELETE FROM sqlite_sequence WHERE name = 'article'")
+            self.conn.commit()
+
+        # Helper to delete articles by id list
+        def delete_articles(article_ids):
+            c = self.conn.cursor()
+            removed_any = False
+            for art_id in article_ids:
+                c.execute("DELETE FROM article WHERE id = ?", (art_id,))
+                if c.rowcount > 0:
+                    removed_any = True
+                    print(f"Deleted article ID {art_id} after reading.")
+                else:
+                    print(f"No article found with ID {art_id} to delete.")
+            if removed_any:
+                self.conn.commit()
+                renumber_article_ids()
+                reset_sqlite_autoincrement()
+
+        def extract_domain(url):
+            try:
+                hostname = urlparse(url).hostname or ""
+                if hostname.startswith("www."):
+                    hostname = hostname[4:]
+                return hostname
+            except Exception:
+                return "(unknown website)"
+
+        # Handle list command
         if cmd == "list":
             c = self.conn.cursor()
             c.execute("SELECT id, title, source FROM article ORDER BY id ASC")
@@ -132,155 +179,150 @@ article remove <ids/ranges>   - remove specified articles and ranges (e.g., 1-3,
                 print("No articles saved yet")
                 return
             for a in articles:
-                print(f"{a['id']}. {a['title']} (source: {a['source']})")
+                site_name = extract_domain(a['source']) if a['source'] else "(unknown website)"
+                print(f"{a['id']}. {a['title']} (source: {site_name})")
+            return
 
-        # read
+
+        # Handle read speed command
+        if cmd == "read" and len(args) > 1 and args[1].lower() == "speed":
+            if len(args) < 3:
+                print("Usage: article read speed <value>")
+                return
+            try:
+                speed = float(args[2])
+                if speed <= 0:
+                    raise ValueError()
+                self.playback_speed = speed
+                print(f"Playback speed set to {speed}x")
+            except ValueError:
+                print("Invalid speed value. Please enter a positive number, e.g. 1.0, 1.5, 2.0")
+            return
+
+        # Determine if delete after reading flag is set by seeing if last argument is "-"
+        delete_after_read = False
+        if args[-1] == "-":
+            delete_after_read = True
+            args = args[:-1]  # Remove trailing '-'
+            if not args:
+                print("No article IDs specified to read and delete.")
+                return
+            # if cmd was 'read' remove it, so that args now only contain IDs or '*'
+            if cmd == "read":
+                args = args[1:]
         elif cmd == "read":
-            if len(args) < 2:
-                print("Usage: article read <ids/ranges> | article read * | article read speed <value>")
+            args = args[1:]  # remove 'read' command from args for further processing
+
+        # If after above cleanup, no arguments, print usage and return
+        if not args:
+            print("Usage: article list | article read <ids/ranges> | article read speed <value> | article <ids/ranges> -")
+            return
+
+        # Decide articles to process
+        c = self.conn.cursor()
+        if args[0] == "*":
+            c.execute("SELECT id FROM article ORDER BY id ASC")
+            rows = c.fetchall()
+            articles_to_read = [r['id'] for r in rows]
+            if not articles_to_read:
+                print("No articles available to read.")
                 return
-
-            if not hasattr(self, 'playback_speed'):
-                self.playback_speed = 1.0
-
-            if args[1].lower() == "speed":
-                if len(args) < 3:
-                    print("Usage: article read speed <value>")
-                    return
-                try:
-                    speed = float(args[2])
-                    if speed <= 0:
-                        raise ValueError()
-                    self.playback_speed = speed
-                    print(f"Playback speed set to {speed}x")
-                except ValueError:
-                    print("Invalid speed value. Please enter a positive number, e.g. 1.0, 1.5, 2.0")
-                return
-
-            c = self.conn.cursor()
-
-            if args[1] == "*":
-                c.execute("SELECT id FROM article ORDER BY id ASC")
-                rows = c.fetchall()
-                articles_to_read = [r['id'] for r in rows]
-                if not articles_to_read:
-                    print("No articles available to read.")
-                    return
-            else:
-                id_string = ' '.join(args[1:])
-                articles_to_read = self.parse_id_string(id_string)
-                if not articles_to_read:
-                    print("No valid article IDs to read.")
-                    return
-
-            total = len(articles_to_read)
-            for idx, article_id in enumerate(articles_to_read, 1):
-                c.execute("SELECT title, source, content FROM article WHERE id = ?", (article_id,))
-                row = c.fetchone()
-                if not row:
-                    print(f"No article found with ID {article_id}")
-                    continue
-
-                title = row['title']
-                source = row['source']
-                site_name = urlparse(source).netloc if source else "(unknown website)"
-
-                content = row['content']
-                if not content or content.strip() == "":
-                    print(f"Article ID {article_id} content empty")
-                    continue
-
-                print(f"Title: {title}")
-                print(f"Website: {site_name}")
-                print(f"Reading article {idx} / {total} (ID {article_id})...")
-
-                with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8', suffix=".txt") as tf:
-                    tf.write(content)
-                    temp_filename = tf.name
-
-                try:
-                    with open(os.devnull, 'w') as devnull:
-                        subprocess.run(['xdg-open', temp_filename], stderr=devnull, stdout=devnull, check=False)
-
-                    subprocess.run([
-                        MPV3_SCRIPT,
-                        "--play-once",
-                        "--no-save",
-                        "--hide-encoding",
-                        "--speed", str(self.playback_speed),
-                        "--file",
-                        temp_filename
-                    ], check=True)
-                except subprocess.CalledProcessError as e:
-                    print(f"TTS playback failed for article {article_id}: {e}")
-                finally:
-                    os.remove(temp_filename)
-        # remove       
-        elif cmd == "remove":
-            def renumber_article_ids():
-                c = self.conn.cursor()
-                c.execute("SELECT id FROM article ORDER BY id ASC")
-                rows = c.fetchall()
-                for new_id, row in enumerate(rows, start=1):
-                    old_id = row['id']
-                    if old_id != new_id:
-                        c.execute("UPDATE article SET id = ? WHERE id = ?", (new_id, old_id))
-                self.conn.commit()
-
-            def reset_sqlite_autoincrement():
-                c = self.conn.cursor()
-                c.execute("DELETE FROM sqlite_sequence WHERE name = 'article'")
-                self.conn.commit()
-
-            if len(args) < 2:
-                print("Usage: article remove <article_id> [<article_id> ...] or article remove *")
-                return
-
-            c = self.conn.cursor()
-
-            if args[1] == "*":
-                confirm = input("Are you sure you want to remove ALL articles? (y/n): ").strip().lower()
-                if confirm == 'y':
-                    c.execute("DELETE FROM article")
-                    self.conn.commit()
-                    print("All articles removed.")
-                    renumber_article_ids()
-                    reset_sqlite_autoincrement()
-                else:
-                    print("Remove all cancelled.")
-            else:
-                id_string = ' '.join(args[1:])
-                article_ids = self.parse_id_string(id_string)
-                if not article_ids:
-                    print("No valid article IDs to remove.")
-                    return
-
-                removed_any = False
-                for art_id in article_ids:
-                    c.execute("DELETE FROM article WHERE id = ?", (art_id,))
-                    if c.rowcount > 0:
-                        print(f"Removed article ID {art_id}")
-                        removed_any = True
-                    else:
-                        print(f"No article found with ID {art_id}")
-                if removed_any:
-                    self.conn.commit()
-                    renumber_article_ids()
-                    reset_sqlite_autoincrement()
-
         else:
-            print("Unknown article command. Available commands: list, read, remove")
+            id_string = ' '.join(args)
+            articles_to_read = self.parse_id_string(id_string)
+            if not articles_to_read:
+                print("No valid article IDs to read.")
+                return
+
+        # Set playback speed default if not set
+        if not hasattr(self, 'playback_speed'):
+            self.playback_speed = 1.0
+
+        total = len(articles_to_read)
+        for idx, article_id in enumerate(articles_to_read, 1):
+            c.execute("SELECT title, source, content FROM article WHERE id = ?", (article_id,))
+            row = c.fetchone()
+            if not row:
+                print(f"No article found with ID {article_id}")
+                continue
+            title = row['title']
+            source = row['source']
+            site_name = urlparse(source).netloc if source else "(unknown website)"
+            content = row['content']
+            if not content or content.strip() == "":
+                print(f"Article ID {article_id} content empty")
+                continue
+            print(f"Title: {title}")
+            print(f"Website: {site_name}")
+            print(f"Reading article {idx} / {total} (ID {article_id})...")
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8', suffix=".txt") as tf:
+                tf.write(content)
+                temp_filename = tf.name
+            try:
+                with open(os.devnull, 'w') as devnull:
+                    subprocess.run(['xdg-open', temp_filename], stderr=devnull, stdout=devnull, check=False)
+                subprocess.run([
+                    MPV3_SCRIPT,
+                    "--play-once",
+                    "--no-save",
+                    "--hide-encoding",
+                    "--speed", str(self.playback_speed),
+                    "--file",
+                    temp_filename
+                ], check=True)
+            except subprocess.CalledProcessError as e:
+                print(f"TTS playback failed for article {article_id}: {e}")
+            finally:
+                os.remove(temp_filename)
+
+        # Delete articles after reading if flagged
+        if delete_after_read:
+            delete_articles(articles_to_read)
+
+        # If the initial command was not read (e.g., just 'article 1 -'), no extra output necessary
+        if cmd not in ["list", "read"]:
+            print("Command executed.")
+
 ########################################################################
     # --- RSS commands ---
     def do_rss(self, arg):
         "RSS feed commands"
         args = arg.split()
         if not args or args[0] == "":
-            print("Usage: rss add <feed_url> | rss fetch <feed_id> <number> | rss list | rss remove <id>")
+            print("Usage: rss add <feed_url> | rss fetch <feed_id> <number> | rss list | rss - <id> [<id> ...]")
             return
         cmd = args[0]
 
-        # add
+        # Delete feeds with rss -
+        if cmd == "-":
+            if len(args) < 2:
+                print("Usage: rss - <feed_id> [<feed_id> ...]")
+                return
+            feed_ids = []
+            for arg_id in args[1:]:
+                try:
+                    feed_ids.append(int(arg_id))
+                except ValueError:
+                    print(f"Invalid feed ID: {arg_id}")
+            if not feed_ids:
+                print("No valid feed IDs provided to remove.")
+                return
+            c = self.conn.cursor()
+            removed_any = False
+            for feed_id in feed_ids:
+                c.execute("DELETE FROM rss_feeds WHERE id = ?", (feed_id,))
+                if c.rowcount > 0:
+                    print(f"Removed RSS feed ID {feed_id}")
+                    removed_any = True
+                else:
+                    print(f"No RSS feed found with ID {feed_id}")
+            if removed_any:
+                self.conn.commit()
+                self.renumber_rss_feed_ids()
+                self.reset_sqlite_autoincrement_for_rss()
+            return
+
+        # Add feed command
         if cmd == "add":
             if len(args) < 2:
                 print("Usage: rss add <feed_url>")
@@ -295,9 +337,10 @@ article remove <ids/ranges>   - remove specified articles and ranges (e.g., 1-3,
                 print(f"Database write error: {e}")
             except sqlite3.Error as e:
                 print(f"Database error: {e}")
+            return
 
-        # fetch
-        elif cmd == "fetch":
+        # Fetch command
+        if cmd == "fetch":
             if len(args) != 3:
                 print("Usage: rss fetch <feed_id|*> <number_of_articles>")
                 return
@@ -311,7 +354,7 @@ article remove <ids/ranges>   - remove specified articles and ranges (e.g., 1-3,
                 return
 
             c = self.conn.cursor()
-            
+
             if args[1] == "*":
                 c.execute("SELECT id, url FROM rss_feeds ORDER BY id ASC")
                 feeds = c.fetchall()
@@ -349,7 +392,7 @@ article remove <ids/ranges>   - remove specified articles and ranges (e.g., 1-3,
                         print("No new articles were added for this feed.")
                     else:
                         print(f"Finished fetching {count} new articles for this feed.")
-      
+                return
             else:
                 try:
                     feed_id = int(args[1])
@@ -393,9 +436,10 @@ article remove <ids/ranges>   - remove specified articles and ranges (e.g., 1-3,
                     print("No new articles were added.")
                 else:
                     print(f"Finished fetching {count} new articles.")
+            return
 
-        # list
-        elif cmd == "list":
+        # List command
+        if cmd == "list":
             c = self.conn.cursor()
             c.execute("SELECT id, url FROM rss_feeds ORDER BY id ASC")
             feeds = c.fetchall()
@@ -404,38 +448,10 @@ article remove <ids/ranges>   - remove specified articles and ranges (e.g., 1-3,
                 return
             for f in feeds:
                 print(f"{f['id']}. {f['url']}")
+            return
 
-        elif cmd == "remove":
-            if len(args) < 2:
-                print("Usage: rss remove <feed_id> [<feed_id> ...]")
-                return
-            feed_ids = []
-            for arg in args[1:]:
-                try:
-                    feed_ids.append(int(arg))
-                except ValueError:
-                    print(f"Invalid feed ID: {arg}")
-            if not feed_ids:
-                print("No valid feed IDs provided to remove.")
-                return
-            c = self.conn.cursor()
-            removed_any = False
-            for feed_id in feed_ids:
-                c.execute("DELETE FROM rss_feeds WHERE id = ?", (feed_id,))
-                if c.rowcount > 0:
-                    print(f"Removed RSS feed ID {feed_id}")
-                    removed_any = True
-                else:
-                    print(f"No RSS feed found with ID {feed_id}")
-            if removed_any:
-                self.conn.commit()
-                self.renumber_rss_feed_ids()
-                self.reset_sqlite_autoincrement_for_rss()
+        print("Unknown rss command. Available: add, fetch, list, -")
 
-
-
-        else:
-            print("Unknown rss command. Available: add, fetch, list, remove")
 ########################################################################
     # --- Manual URL add command ---
     def do_url(self, arg):

@@ -73,10 +73,10 @@ Read ALL articles
 - `article read speed <value>`
 Set playback speed (e.g., article read speed 1.5)
 
-- `article remove <ids/ranges>`
+- `article <ids/ranges> -`
 Remove specific articles
 
-- `article remove *`
+- `article * -`
 Remove ALL articles
 
 #### RSS Commands
@@ -92,7 +92,7 @@ Fetch <number> of articles from given feed
 - `rss fetch * <number>`
 Fetch from ALL feeds
 
-- `rss remove <feed_id>`
+- `rss - <feed_id>`
 Remove a feed by ID
 
 #### URL Commands
