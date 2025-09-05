@@ -16,20 +16,29 @@ This is ideal for users who want a lightweight, voice-assisted RSS/article reade
 
 ## Requirements
 
-The script checks for and optionally installs the following dependencies:
+System Packages (apt)
+The following packages are required to be installed on your system:
 
-- [`git`](https://git-scm.com/)
-- [`festival`](https://www.cstr.ed.ac.uk/projects/festival/) – TTS engine
-- [`xsel`](https://linux.die.net/man/1/xsel) – X11 clipboard tool
+-`git` – version control system
+-`festival` – speech synthesis engine (TTS)
+-`xsel` – X11 clipboard tool
+-`python3-pip` – Python package manager
+-`libxml2-dev`, libxslt1-dev – XML libraries for parsing
+-`python3-dev` – Python development headers
+-`libjpeg-dev` – JPEG library headers
+-`zlib1g-dev` – compression library
+-`build-essential` – essential build tools (compiler, linker)
+-`python3-gi`, `python3-gi-cairo`, `gir1.2-gtk-4.0` – GObject introspection and GTK dependencies
 
-Python dependencies:
+Python Packages (pip)
+The following Python packages are required for brief to work:
 
-- `feedparser` – for parsing RSS feeds
-- `newspaper3k` – for downloading and parsing full articles
-
-Install Python requirements:
-
-- `pip install feedparser newspaper3k`
+-`feedparser` – RSS feed parsing
+-`newspaper3k` – downloading and parsing full articles
+-`lxml_html_clean`
+-`pyyaml`
+-`cssselect`
+-`Pillow`
 
 ---
 
@@ -83,6 +92,9 @@ Read specified articles (example: article read 1-3,5,7-10)
 - `article read *`
 Read ALL articles
 
+- `article open <ids/ranges>`
+Open specified articles (example: article open 1-3,5,7-10)
+
 - `article read speed <value>`
 Set playback speed (e.g., article read speed 1.5)
 
@@ -107,6 +119,9 @@ Fetch from ALL feeds
 
 - `rss - <feed_id>`
 Remove a feed by ID
+
+- `rss order <feed_id> <feed_id>`
+Sort order of feed
 
 #### URL Commands
 - `url add <article_url>`
