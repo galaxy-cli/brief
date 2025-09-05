@@ -259,7 +259,7 @@ class BriefShell(cmd.Cmd):
                 print("Usage: article - <ids/ranges> or article - * to delete articles")
                 return
             c = self.conn.cursor()
-            if args[10] == "*":
+            if args[1:] == "*":
                 confirm = input("Are you sure to delete ALL articles? (y/n) ").lower()
                 if confirm != "y":
                     print("Operation cancelled.")
