@@ -299,7 +299,7 @@ class BriefShell(cmd.Cmd):
                     print("Usage: article read speed <value>")
                     return
                 try:
-                    speed = float(args)
+                    speed = float(args[2])
                     if speed <= 0:
                         raise ValueError()
                     self.playback_speed = speed
@@ -309,10 +309,10 @@ class BriefShell(cmd.Cmd):
                 return
             ids_args = args[1:]
             if not ids_args:
-                print("Usage: article read <ids/ranges> | article read *")
+                print("Usage: article read <ids/ranges> | article read * | article read speed <value>")
                 return
             c = self.conn.cursor()
-            if ids_args == "*":
+            if ids_args == ["*"]:
                 c.execute("SELECT id FROM article ORDER BY id ASC")
                 articles_to_read = [r['id'] for r in c.fetchall()]
                 if not articles_to_read:
