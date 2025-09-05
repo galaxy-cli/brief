@@ -260,6 +260,7 @@ class BriefShell(cmd.Cmd):
                 if c.rowcount > 0:
                     removed_any = True
                     print(f"Deleted article ID {art['id']}")
+                    return
             if removed_any:
                 self.conn.commit()
 
@@ -280,6 +281,7 @@ class BriefShell(cmd.Cmd):
             if len(args) > 1 and args[-1] == "-":
                 delete_after_read = True
                 args = args[:-1]
+
             if len(args) > 1 and args[1].lower() == "speed":
                 if len(args) < 3:
                     print("Usage: article read speed <value>")
@@ -293,56 +295,130 @@ class BriefShell(cmd.Cmd):
                 except ValueError:
                     print("Invalid speed value. Please enter a positive number.")
                 return
+
             ids_args = args[1:]
-            if not ids_args:
-                print("Usage: article read <ids/ranges> | article read * | article read speed <value>")
-                return
             c = self.conn.cursor()
-            if ids_args == ["*"]:
-                c.execute("SELECT id FROM article ORDER BY id ASC")
-                articles_to_read = [r['id'] for r in c.fetchall()]
-                if not articles_to_read:
-                    print("No articles available to read.")
-                    return
-            else:
-                articles_to_read = self.parse_id_string(' '.join(ids_args))
-                if not articles_to_read:
-                    print("No valid article IDs to read.")
-                    return
+
+            def get_next_article_id():
+                if ids_args == ["*"]:
+                    c.execute("SELECT id FROM article ORDER BY id ASC LIMIT 1")
+                else:
+                    # If specific IDs, iterate through them dynamically
+                    # Pop the first id from ids_args list to get next id
+                    if not ids_args:
+                        return None
+                    next_id_str = ids_args[0]
+                    if '-' in next_id_str:
+                        try:
+                            start, end = map(int, next_id_str.split('-', 1))
+                            if start > end:
+                                ids_args.pop(0)
+                                return get_next_article_id()
+                            next_id = start
+                            if start == end:
+                                ids_args.pop(0)
+                            else:
+                                ids_args[0] = f"{start+1}-{end}"
+                            return next_id
+                        except ValueError:
+                            ids_args.pop(0)
+                            return get_next_article_id()
+                    else:
+                        try:
+                            next_id = int(next_id_str)
+                            ids_args.pop(0)
+                            return next_id
+                        except ValueError:
+                            ids_args.pop(0)
+                            return get_next_article_id()
+                    return None
+
+                row = c.fetchone()
+                return row['id'] if row else None
+
             if not hasattr(self, 'playback_speed'):
                 self.playback_speed = 1.0
-            total = len(articles_to_read)
-            for idx, article_id in enumerate(articles_to_read, 1):
+
+            if ids_args and ids_args != ["*"]:
+                # Convert args into a flat list of individual IDs
+                id_list = []
+                for part in ids_args:
+                    if '-' in part:
+                        try:
+                            start, end = map(int, part.split('-', 1))
+                            id_list.extend(range(start, end + 1))
+                        except ValueError:
+                            continue
+                    else:
+                        try:
+                            id_list.append(int(part))
+                        except ValueError:
+                            continue
+                ids_args = list(map(str, id_list))
+
+            total = len(ids_args) if ids_args and ids_args != ["*"] else None
+            idx = 0
+
+            while True:
+                article_id = get_next_article_id()
+                if article_id is None:
+                    if idx == 0:
+                        print("No valid article IDs to read.")
+                    break
+                idx += 1
                 c.execute("SELECT title, source, content, publish_date FROM article WHERE id = ?", (article_id,))
                 row = c.fetchone()
                 if not row:
                     print(f"No article found with ID {article_id}")
                     continue
+
                 title, source, content, _ = row
                 site_name = urlparse(source).hostname or "(unknown website)"
                 site_name = site_name[4:] if site_name.startswith("www.") else site_name
                 if not content or content.strip() == "":
                     print(f"Article ID {article_id} content empty")
                     continue
+
                 print(f"Title: {title}")
                 print(f"Website: {site_name}")
-                print(f"Reading article {idx} / {total} (ID {article_id})...")
+                if total is None:
+                    print(f"Reading article {idx} (ID {article_id})...")
+                else:
+                    print(f"Reading article {idx} / {total} (ID {article_id})...")
                 temp_filename = self.write_temp_file(content)
                 try:
                     subprocess.run(["xdg-open", temp_filename], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
                     subprocess.run([
                         TTS_SCRIPT,
-                        "--file",
-                        temp_filename,
+                        "--file", temp_filename,
                         "--speed", str(self.playback_speed)
                     ])
                 except subprocess.CalledProcessError as e:
                     print(f"TTS playback failed for article {article_id}: {e}")
                 finally:
                     os.remove(temp_filename)
+
                 if delete_after_read:
+                    # Define delete_articles if not defined or call it otherwise
+                    def delete_articles(article_ids):
+                        removed_any = False
+                        for aid in article_ids:
+                            c.execute("DELETE FROM article WHERE id = ?", (aid,))
+                            if c.rowcount > 0:
+                                removed_any = True
+                                print(f"Deleted article ID {aid}")
+                            else:
+                                print(f"No article found with ID {aid}")
+                        if removed_any:
+                            self.conn.commit()
+                            # Optional: renumber article IDs after deletion
+                            if hasattr(self, "renumber_article_ids"):
+                                self.renumber_article_ids()
+                            if hasattr(self, "reset_sqlite_autoincrement"):
+                                self.reset_sqlite_autoincrement()
+
                     delete_articles([article_id])
-            return
+
 
         # Open article
         if cmd == "open":
