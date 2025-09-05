@@ -11,14 +11,7 @@ import sys
 import itertools
 import importlib.util
 #######################################################################
-PIP_PACKAGE_TO_MODULE = {
-    "feedparser": "feedparser",
-    "newspaper3k": "newspaper",
-    "lxml_html_clean": "lxml_html_clean", 
-    "pyyaml": "yaml",
-    "cssselect": "cssselect",
-    "Pillow": "PIL"
-}
+PIP_PACKAGE_TO_MODULE = {"feedparser": "feedparser", "newspaper3k": "newspaper", "lxml_html_clean": "lxml_html_clean",  "pyyaml": "yaml", "cssselect": "cssselect", "Pillow": "PIL"}
 
 def check_apt_dependencies(packages):
     missing = []
@@ -37,29 +30,8 @@ def check_pip_dependencies(packages):
     return missing
 
 def install_packages():
-    apt_packages = [
-        "git",
-        "festival",
-        "xsel",
-        "python3-pip",
-        "libxml2-dev",
-        "libxslt1-dev",
-        "python3-dev",
-        "libjpeg-dev",
-        "zlib1g-dev",
-        "build-essential",
-        "python3-gi",
-        "python3-gi-cairo",
-        "gir1.2-gtk-4.0"
-    ]
-    pip_packages = [
-        "feedparser",
-        "newspaper3k",
-        "lxml_html_clean",
-        "pyyaml",
-        "cssselect",
-        "Pillow"
-    ]
+    apt_packages = ["git", "festival", "xsel","python3-pip", "libxml2-dev", "libxslt1-dev", "python3-dev", "libjpeg-dev", "zlib1g-dev", "build-essential", "python3-gi", "python3-gi-cairo", "gir1.2-gtk-4.0"]
+    pip_packages = ["feedparser","newspaper3k", "lxml_html_clean", "pyyaml", "cssselect", "Pillow"]
 
     missing_apt = check_apt_dependencies(apt_packages)
     if missing_apt:
@@ -256,26 +228,40 @@ class BriefShell(cmd.Cmd):
         # Delete articles
         if cmd == "-":
             if len(args) < 2:
-                print("Usage: article - <ids/ranges> or article - * to delete articles")
+                print("Usage: article - <id list>")
                 return
+
+            id_str = ' '.join(args[1:])
+            article_ids = self.parse_id_string(id_str)
+            if not article_ids:
+                print("No valid article IDs provided to delete")
+                return
+
             c = self.conn.cursor()
-            if args[1:] == "*":
-                confirm = input("Are you sure to delete ALL articles? (y/n) ").lower()
-                if confirm != "y":
-                    print("Operation cancelled.")
-                    return
-                c.execute("SELECT id FROM article ORDER BY id ASC")
-                articles_to_delete = [r['id'] for r in c.fetchall()]
-                if not articles_to_delete:
-                    print("No articles to delete.")
-                    return
-            else:
-                articles_to_delete = self.parse_id_string(' '.join(args[1:]))
-                if not articles_to_delete:
-                    print("No valid article IDs to delete.")
-                    return
-            delete_articles(articles_to_delete)
-            return
+            c.execute(f"SELECT id, title FROM article WHERE id IN ({','.join('?'*len(article_ids))}) ORDER BY id ASC", article_ids)
+            articles_to_delete = c.fetchall()
+
+            if not articles_to_delete:
+                print("No articles found with the specified IDs")
+                return
+
+            print("Articles to be deleted:")
+            for art in articles_to_delete:
+                print(f"{art['id']}. {art['title']}")
+
+            confirm = input("Are you sure you want to delete these articles? (y/n) ").strip().lower()
+            if confirm != 'y':
+                print("Deletion cancelled.")
+                return
+
+            removed_any = False
+            for art in articles_to_delete:
+                c.execute("DELETE FROM article WHERE id = ?", (art['id'],))
+                if c.rowcount > 0:
+                    removed_any = True
+                    print(f"Deleted article ID {art['id']}")
+            if removed_any:
+                self.conn.commit()
 
         # List articles
         if cmd == "list":
@@ -374,7 +360,7 @@ class BriefShell(cmd.Cmd):
             else:
                 articles_to_open = self.parse_id_string(' '.join(ids_args))
                 if not articles_to_open:
-                    print("No valid article IDs to open.")
+                    print("No valid article IDs to open")
                     return
             total = len(articles_to_open)
             for idx, article_id in enumerate(articles_to_open, 1):
@@ -414,6 +400,7 @@ class BriefShell(cmd.Cmd):
             if len(args) < 2:
                 print("Usage: rss - <ids> (comma separated supported)")
                 return
+            
             feed_ids_raw = [s.strip() for s in ' '.join(args[1:]).split(',') if s.strip()]
             feed_ids = []
             for id_str in feed_ids_raw:
@@ -422,7 +409,19 @@ class BriefShell(cmd.Cmd):
                 except ValueError:
                     print(f"Invalid feed ID: {id_str}")
             if not feed_ids:
-                print("No valid feed IDs provided to remove.")
+                print("No valid feed IDs provided to remove")
+                return
+            c.execute(f"SELECT id, url FROM rss_feeds WHERE id IN ({','.join('?'*len(feed_ids))}) ORDER BY id ASC", feed_ids)
+            feeds_to_delete = c.fetchall()
+            if not feeds_to_delete:
+                print("No RSS feeds found with the specified IDs")
+                return
+            print("RSS feeds to be removed:")
+            for feed in feeds_to_delete:
+                print(f"{feed['id']}. {feed['url']}")
+            confirm = input("Are you sure you want to delete these RSS feeds? (y/n) ").strip().lower()
+            if confirm != 'y':
+                print("Deletion cancelled")
                 return
             removed_any = False
             for feed_id in feed_ids:
@@ -437,6 +436,7 @@ class BriefShell(cmd.Cmd):
                 self.renumber_rss_feed_ids()
                 self.reset_sqlite_autoincrement_for_rss()
             return
+
 
         # Add RSS feed
         if cmd == "add":
@@ -501,7 +501,7 @@ class BriefShell(cmd.Cmd):
                         except Exception as e:
                             print(f"Failed to parse article {url}: {e}")
                 if count == 0:
-                    print("No new articles were added.")
+                    print("No new articles were added")
                 else:
                     print(f"Finished fetching {count} new articles for feed ID {feed_id}.")
 
@@ -518,7 +518,7 @@ class BriefShell(cmd.Cmd):
                 try:
                     feed_id = int(feed_id_str)
                 except ValueError:
-                    print("Feed ID must be an integer or '*'.")
+                    print("Feed ID must be an integer or '*'")
                     return
                 c.execute("SELECT url FROM rss_feeds WHERE id = ?", (feed_id,))
                 feed = c.fetchone()
@@ -548,12 +548,12 @@ class BriefShell(cmd.Cmd):
             try:
                 from_id, to_id = int(args[1]), int(args[2])
             except ValueError:
-                print("Feed IDs must be integers.")
+                print("Feed IDs must be integers")
                 return
             c.execute("SELECT id FROM rss_feeds WHERE id IN (?, ?)", (from_id, to_id))
             rows = c.fetchall()
             if len(rows) != 2:
-                print("Both feed IDs must exist.")
+                print("Both feed IDs must exist")
                 return
             try:
                 TEMP_ID_1 = -9999
@@ -581,7 +581,7 @@ class BriefShell(cmd.Cmd):
                 self.conn.rollback()
             return
 
-    print("Unknown rss command. Available: add, fetch, list, order, -")
+        print("Unknown rss command. Available: add, fetch, list, order, -")
 ########################################################################
     # --- url ---
     def do_url(self, arg):
@@ -656,4 +656,4 @@ if __name__ == '__main__':
             shell.cmdloop()
             break
         except KeyboardInterrupt:
-            print("\nPress 'exit' to quit.")
+            print("\nPress 'exit' to quit")
