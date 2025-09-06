@@ -3,12 +3,12 @@
 A command-line tool that lets you collect, manage, and read news articles and RSS feeds.  
 It supports:
 
-- Subscribing to RSS feeds
-- Fetching and saving articles
-- Adding articles by direct URL
-- Listing, reading, and removing saved articles
-- Text-to-speech (TTS) playback using Festival + MPV
-- Command-driven interactive shell (like `sqlite3` or `ftp` CLI utilities)
+-Subscribing to RSS feeds
+-Fetching and saving articles
+-Adding articles by direct URL
+-Listing, reading, and removing saved articles
+-Text-to-speech (TTS) playback using Festival + MPV
+-Command-driven interactive shell (like `sqlite3` or `ftp` CLI utilities)
 
 This is ideal for users who want a lightweight, voice-assisted RSS/article reader.
 
@@ -46,9 +46,9 @@ The following Python packages are required for brief to work:
 
 Clone the repository and run the script:
 
-- `git clone https://github.com/yourusername/brief`
-- `cd brief`
-- `python3 brief.py`
+-`git clone https://github.com/yourusername/brief`
+-`cd brief`
+-`python3 brief.py`
 
 When you start Brief, it will:
 
