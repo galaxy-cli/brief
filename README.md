@@ -19,26 +19,26 @@ This is ideal for users who want a lightweight, voice-assisted RSS/article reade
 System Packages (apt)
 The following packages are required to be installed on your system:
 
--`git` – version control system
--`festival` – speech synthesis engine (TTS)
--`xsel` – X11 clipboard tool
--`python3-pip` – Python package manager
--`libxml2-dev`, libxslt1-dev – XML libraries for parsing
--`python3-dev` – Python development headers
--`libjpeg-dev` – JPEG library headers
--`zlib1g-dev` – compression library
--`build-essential` – essential build tools (compiler, linker)
--`python3-gi`, `python3-gi-cairo`, `gir1.2-gtk-4.0` – GObject introspection and GTK dependencies
+- `git` – version control system
+- `festival` – speech synthesis engine (TTS)
+- `xsel` – X11 clipboard tool
+- `python3-pip` – Python package manager
+- `libxml2-dev`, libxslt1-dev – XML libraries for parsing
+- `python3-dev` – Python development headers
+- `libjpeg-dev` – JPEG library headers
+- `zlib1g-dev` – compression library
+- `build-essential` – essential build tools (compiler, linker)
+- `python3-gi`, `python3-gi-cairo`, `gir1.2-gtk-4.0` – GObject introspection and GTK dependencies
 
 Python Packages (pip)
 The following Python packages are required for brief to work:
 
--`feedparser` – RSS feed parsing
--`newspaper3k` – downloading and parsing full articles
--`lxml_html_clean`
--`pyyaml`
--`cssselect`
--`Pillow`
+- `feedparser` – RSS feed parsing
+- `newspaper3k` – downloading and parsing full articles
+- `lxml_html_clean`
+- `pyyaml`
+- `cssselect`
+- `Pillow`
 
 ---
 
@@ -46,9 +46,9 @@ The following Python packages are required for brief to work:
 
 Clone the repository and run the script:
 
--`git clone https://github.com/yourusername/brief`
--`cd brief`
--`python3 brief.py`
+- `git clone https://github.com/yourusername/brief`
+- `cd brief`
+- `python3 brief.py`
 
 When you start Brief, it will:
 
