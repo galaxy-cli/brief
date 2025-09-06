@@ -137,21 +137,63 @@ class BriefShell(cmd.Cmd):
             print(f"Error renumbering rss feed IDs: {e}")
             self.conn.rollback()
 
-    def reset_sqlite_autoincrement_for_rss(self):
+    def reset_sqlite_autoincrement(self):
         try:
             c = self.conn.cursor()
-            c.execute("SELECT MAX(id) AS max_id FROM rss_feeds")
+            c.execute("SELECT MAX(id) AS max_id FROM article")
             row = c.fetchone()
             max_id = row['max_id'] if row and row['max_id'] is not None else 0
             if max_id == 0:
-                # If no rows, reset sequence to 0
-                c.execute("DELETE FROM sqlite_sequence WHERE name='rss_feeds'")
+                c.execute("DELETE FROM sqlite_sequence WHERE name='article'")
             else:
-                c.execute("UPDATE sqlite_sequence SET seq = ? WHERE name = 'rss_feeds'", (max_id,))
+                c.execute("UPDATE sqlite_sequence SET seq = ? WHERE name='article'", (max_id,))
             self.conn.commit()
         except sqlite3.Error as e:
             print(f"Error resetting autoincrement: {e}")
             self.conn.rollback()
+
+    def delete_rows_with_confirmation(self, table_name, display_columns, id_str, renumber_func=None, reset_func=None):
+        c = self.conn.cursor()
+        if id_str == "*":
+            c.execute(f"SELECT {', '.join(display_columns)} FROM {table_name} ORDER BY id ASC")
+            rows_to_delete = c.fetchall()
+            if not rows_to_delete:
+                print(f"No records found to delete in {table_name}.")
+                return False
+        else:
+            ids = self.parse_id_string(id_str)
+            if not ids:
+                print("No valid IDs provided to delete")
+                return False
+            placeholders = ','.join('?' * len(ids))
+            c.execute(f"SELECT {', '.join(display_columns)} FROM {table_name} WHERE id IN ({placeholders}) ORDER BY id ASC", ids)
+            rows_to_delete = c.fetchall()
+            if not rows_to_delete:
+                print(f"No records found with the specified IDs in {table_name}")
+                return False
+        print(f"Records to be deleted from {table_name}:")
+        for row in rows_to_delete:
+            display_str = ', '.join(str(row[col]) for col in display_columns)
+            print(display_str)
+        confirm = input("Are you sure you want to delete these records? [Y/n] ").strip().lower()
+        if confirm != 'y':
+            print("Deletion cancelled.")
+            return False
+        removed_any = False
+        for row in rows_to_delete:
+            c.execute(f"DELETE FROM {table_name} WHERE id = ?", (row['id'],))
+            if c.rowcount > 0:
+                print(f"Deleted record ID {row['id']}")
+                removed_any = True
+            else:
+                print(f"Record with ID {row['id']} was not found or already deleted.")
+        if removed_any:
+            self.conn.commit()
+            if renumber_func:
+                renumber_func()
+            if reset_func:
+                reset_func()
+        return removed_any
 ########################################################################
     # --- article ---
     @staticmethod
@@ -224,48 +266,70 @@ class BriefShell(cmd.Cmd):
                 self.conn.commit()
                 renumber_article_ids()
                 reset_sqlite_autoincrement()
+        
+        def delete_rows_with_confirmation(self, table_name, display_columns, id_str, renumber_func=None, reset_func=None):
+            c = self.conn.cursor()
+            if id_str == "*":
+                c.execute(f"SELECT {', '.join(display_columns)} FROM {table_name} ORDER BY id ASC")
+                rows_to_delete = c.fetchall()
+                if not rows_to_delete:
+                    print(f"No records found to delete in {table_name}.")
+                    return False
+            else:
+                ids = self.parse_id_string(id_str)
+                if not ids:
+                    print("No valid IDs provided to delete")
+                    return False
+                placeholders = ','.join('?' * len(ids))
+                c.execute(f"SELECT {', '.join(display_columns)} FROM {table_name} WHERE id IN ({placeholders}) ORDER BY id ASC", ids)
+                rows_to_delete = c.fetchall()
+                if not rows_to_delete:
+                    print(f"No records found with the specified IDs in {table_name}")
+                    return False
+            print(f"Records to be deleted from {table_name}:")
+            for row in rows_to_delete:
+                display_str = ', '.join(str(row[col]) for col in display_columns)
+                print(display_str)
+            confirm = input("Are you sure you want to delete these records? [Y/n] ").strip().lower()
+            if confirm != 'y':
+                print("Deletion cancelled")
+                return False
+            removed_any = False
+            for row in rows_to_delete:
+                c.execute(f"DELETE FROM {table_name} WHERE id = ?", (row['id'],))
+                if c.rowcount > 0:
+                    print(f"Deleted record ID {row['id']}")
+                    removed_any = True
+                else:
+                    print(f"Record with ID {row['id']} was not found or already deleted")
+            if removed_any:
+                self.conn.commit()
+                if renumber_func:
+                    renumber_func()
+                if reset_func:
+                    reset_func()
+            return removed_any
 
         # Delete articles
         if cmd == "-":
             if len(args) < 2:
-                print("Usage: article - <id list>")
+                print("Usage: article - <id list> or article - *")
                 return
+            id_str = ' '.join(args[1:]).strip()
+            self.delete_rows_with_confirmation(
+                table_name="article",
+                display_columns=["id", "title"],
+                id_str=id_str,
+                renumber_func=getattr(self, "renumber_article_ids", None),
+                reset_func=getattr(self, "reset_sqlite_autoincrement", None)
+            )
+            return
 
-            id_str = ' '.join(args[1:])
-            article_ids = self.parse_id_string(id_str)
-            if not article_ids:
-                print("No valid article IDs provided to delete")
-                return
-
-            c = self.conn.cursor()
-            c.execute(f"SELECT id, title FROM article WHERE id IN ({','.join('?'*len(article_ids))}) ORDER BY id ASC", article_ids)
-            articles_to_delete = c.fetchall()
-
-            if not articles_to_delete:
-                print("No articles found with the specified IDs")
-                return
-
-            print("Articles to be deleted:")
-            for art in articles_to_delete:
-                print(f"{art['id']}. {art['title']}")
-
-            confirm = input("Are you sure you want to delete these articles? (y/n) ").strip().lower()
-            if confirm != 'y':
-                print("Deletion cancelled.")
-                return
-
-            removed_any = False
-            for art in articles_to_delete:
-                c.execute("DELETE FROM article WHERE id = ?", (art['id'],))
-                if c.rowcount > 0:
-                    removed_any = True
-                    print(f"Deleted article ID {art['id']}")
-                    return
-            if removed_any:
-                self.conn.commit()
-
-        # List articles
         if cmd == "list":
+            if hasattr(self, "renumber_article_ids"):
+                self.renumber_article_ids()
+            if hasattr(self, "reset_sqlite_autoincrement"):
+                self.reset_sqlite_autoincrement()
             c = self.conn.cursor()
             c.execute("SELECT id, title, source FROM article ORDER BY id ASC")
             articles = c.fetchall()
@@ -295,16 +359,12 @@ class BriefShell(cmd.Cmd):
                 except ValueError:
                     print("Invalid speed value. Please enter a positive number.")
                 return
-
             ids_args = args[1:]
             c = self.conn.cursor()
-
             def get_next_article_id():
                 if ids_args == ["*"]:
                     c.execute("SELECT id FROM article ORDER BY id ASC LIMIT 1")
                 else:
-                    # If specific IDs, iterate through them dynamically
-                    # Pop the first id from ids_args list to get next id
                     if not ids_args:
                         return None
                     next_id_str = ids_args[0]
@@ -332,15 +392,11 @@ class BriefShell(cmd.Cmd):
                             ids_args.pop(0)
                             return get_next_article_id()
                     return None
-
                 row = c.fetchone()
                 return row['id'] if row else None
-
             if not hasattr(self, 'playback_speed'):
                 self.playback_speed = 1.0
-
             if ids_args and ids_args != ["*"]:
-                # Convert args into a flat list of individual IDs
                 id_list = []
                 for part in ids_args:
                     if '-' in part:
@@ -355,10 +411,8 @@ class BriefShell(cmd.Cmd):
                         except ValueError:
                             continue
                 ids_args = list(map(str, id_list))
-
             total = len(ids_args) if ids_args and ids_args != ["*"] else None
             idx = 0
-
             while True:
                 article_id = get_next_article_id()
                 if article_id is None:
@@ -371,14 +425,12 @@ class BriefShell(cmd.Cmd):
                 if not row:
                     print(f"No article found with ID {article_id}")
                     continue
-
                 title, source, content, _ = row
                 site_name = urlparse(source).hostname or "(unknown website)"
                 site_name = site_name[4:] if site_name.startswith("www.") else site_name
                 if not content or content.strip() == "":
                     print(f"Article ID {article_id} content empty")
                     continue
-
                 print(f"Title: {title}")
                 print(f"Website: {site_name}")
                 if total is None:
@@ -397,9 +449,7 @@ class BriefShell(cmd.Cmd):
                     print(f"TTS playback failed for article {article_id}: {e}")
                 finally:
                     os.remove(temp_filename)
-
                 if delete_after_read:
-                    # Define delete_articles if not defined or call it otherwise
                     def delete_articles(article_ids):
                         removed_any = False
                         for aid in article_ids:
@@ -411,14 +461,11 @@ class BriefShell(cmd.Cmd):
                                 print(f"No article found with ID {aid}")
                         if removed_any:
                             self.conn.commit()
-                            # Optional: renumber article IDs after deletion
                             if hasattr(self, "renumber_article_ids"):
                                 self.renumber_article_ids()
                             if hasattr(self, "reset_sqlite_autoincrement"):
                                 self.reset_sqlite_autoincrement()
-
                     delete_articles([article_id])
-
 
         # Open article
         if cmd == "open":
@@ -474,45 +521,17 @@ class BriefShell(cmd.Cmd):
         # Delete RSS feeds
         if cmd == "-":
             if len(args) < 2:
-                print("Usage: rss - <ids> (comma separated supported)")
+                print("Usage: rss - <ids> (comma separated supported) or rss - *")
                 return
-            
-            feed_ids_raw = [s.strip() for s in ' '.join(args[1:]).split(',') if s.strip()]
-            feed_ids = []
-            for id_str in feed_ids_raw:
-                try:
-                    feed_ids.append(int(id_str))
-                except ValueError:
-                    print(f"Invalid feed ID: {id_str}")
-            if not feed_ids:
-                print("No valid feed IDs provided to remove")
-                return
-            c.execute(f"SELECT id, url FROM rss_feeds WHERE id IN ({','.join('?'*len(feed_ids))}) ORDER BY id ASC", feed_ids)
-            feeds_to_delete = c.fetchall()
-            if not feeds_to_delete:
-                print("No RSS feeds found with the specified IDs")
-                return
-            print("RSS feeds to be removed:")
-            for feed in feeds_to_delete:
-                print(f"{feed['id']}. {feed['url']}")
-            confirm = input("Are you sure you want to delete these RSS feeds? (y/n) ").strip().lower()
-            if confirm != 'y':
-                print("Deletion cancelled")
-                return
-            removed_any = False
-            for feed_id in feed_ids:
-                c.execute("DELETE FROM rss_feeds WHERE id = ?", (feed_id,))
-                if c.rowcount > 0:
-                    print(f"Removed RSS feed ID {feed_id}")
-                    removed_any = True
-                else:
-                    print(f"No RSS feed found with ID {feed_id}")
-            if removed_any:
-                self.conn.commit()
-                self.renumber_rss_feed_ids()
-                self.reset_sqlite_autoincrement_for_rss()
+            id_str = ' '.join(args[1:]).strip()
+            self.delete_rows_with_confirmation(
+                table_name="rss_feeds",
+                display_columns=["id", "url"],
+                id_str=id_str,
+                renumber_func=getattr(self, "renumber_rss_feed_ids", None),
+                reset_func=getattr(self, "reset_sqlite_autoincrement_for_rss", None)
+            )
             return
-
 
         # Add RSS feed
         if cmd == "add":
