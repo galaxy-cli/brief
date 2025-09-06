@@ -339,11 +339,12 @@ class BriefShell(cmd.Cmd):
             return
 
         # List article
-        if cmd == "list":
+        elif cmd == "list":
             if hasattr(self, "renumber_article_ids"):
                 self.renumber_article_ids()
             if hasattr(self, "reset_sqlite_autoincrement"):
                 self.reset_sqlite_autoincrement()
+
             c = self.conn.cursor()
             c.execute("SELECT id, title, source FROM article ORDER BY id ASC")
             articles = c.fetchall()
@@ -351,57 +352,25 @@ class BriefShell(cmd.Cmd):
                 print("No articles saved yet")
                 return
             print('\n'.join(map(self.article_summary, articles)))
-            return
 
         # Spead article
-        if cmd == "speed":
+        elif cmd == "speed":
             self.set_article_speed(' '.join(args))
             return
 
         # Read article
-        if cmd == "read":
+        elif cmd == "read":
             delete_after_read = False
             if len(args) > 1 and args[-1] == "-":
                 delete_after_read = True
                 args = args[:-1]
             ids_args = args[1:]
             c = self.conn.cursor()
-            def get_next_article_id():
-                if ids_args == ["*"]:
-                    c.execute("SELECT id FROM article ORDER BY id ASC LIMIT 1")
-                else:
-                    if not ids_args:
-                        return None
-                    next_id_str = ids_args[0]
-                    if '-' in next_id_str:
-                        try:
-                            start, end = map(int, next_id_str.split('-', 1))
-                            if start > end:
-                                ids_args.pop(0)
-                                return get_next_article_id()
-                            next_id = start
-                            if start == end:
-                                ids_args.pop(0)
-                            else:
-                                ids_args[0] = f"{start+1}-{end}"
-                            return next_id
-                        except ValueError:
-                            ids_args.pop(0)
-                            return get_next_article_id()
-                    else:
-                        try:
-                            next_id = int(next_id_str)
-                            ids_args.pop(0)
-                            return next_id
-                        except ValueError:
-                            ids_args.pop(0)
-                            return get_next_article_id()
-                    return None
-                row = c.fetchone()
-                return row['id'] if row else None
-            if not hasattr(self, 'playback_speed'):
-                self.playback_speed = 1.0
-            if ids_args and ids_args != ["*"]:
+            
+            if ids_args == ["*"]:
+                c.execute("SELECT id FROM article ORDER BY id ASC")
+                articles_to_read = [r['id'] for r in c.fetchall()]
+            else:
                 id_list = []
                 for part in ids_args:
                     if '-' in part:
@@ -415,16 +384,12 @@ class BriefShell(cmd.Cmd):
                             id_list.append(int(part))
                         except ValueError:
                             continue
-                ids_args = list(map(str, id_list))
-            total = len(ids_args) if ids_args and ids_args != ["*"] else None
-            idx = 0
-            while True:
-                article_id = get_next_article_id()
-                if article_id is None:
-                    if idx == 0:
-                        print("No valid article IDs to read")
-                    break
-                idx += 1
+                articles_to_read = id_list
+            if not articles_to_read:
+                print("No valid article IDs to read")
+                return
+            total = len(articles_to_read)
+            for idx, article_id in enumerate(articles_to_read, 1):
                 c.execute("SELECT title, source, content, publish_date FROM article WHERE id = ?", (article_id,))
                 row = c.fetchone()
                 if not row:
@@ -432,16 +397,14 @@ class BriefShell(cmd.Cmd):
                     continue
                 title, source, content, _ = row
                 site_name = urlparse(source).hostname or "(unknown website)"
-                site_name = site_name[4:] if site_name.startswith("www.") else site_name
+                if site_name.startswith("www."):
+                    site_name = site_name[4:]
                 if not content or content.strip() == "":
                     print(f"Article ID {article_id} content empty")
                     continue
                 print(f"Title: {title}")
                 print(f"Website: {site_name}")
-                if total is None:
-                    print(f"Reading article {idx} (ID {article_id})...")
-                else:
-                    print(f"Reading article {idx} / {total} (ID {article_id})...")
+                print(f"Reading article {idx} / {total} (ID {article_id})...")
                 temp_filename = self.write_temp_file(content)
                 try:
                     subprocess.run(["xdg-open", temp_filename], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
@@ -455,25 +418,11 @@ class BriefShell(cmd.Cmd):
                 finally:
                     os.remove(temp_filename)
                 if delete_after_read:
-                    def delete_articles(article_ids):
-                        removed_any = False
-                        for aid in article_ids:
-                            c.execute("DELETE FROM article WHERE id = ?", (aid,))
-                            if c.rowcount > 0:
-                                removed_any = True
-                                print(f"Deleted article ID {aid}")
-                            else:
-                                print(f"No article found with ID {aid}")
-                        if removed_any:
-                            self.conn.commit()
-                            if hasattr(self, "renumber_article_ids"):
-                                self.renumber_article_ids()
-                            if hasattr(self, "reset_sqlite_autoincrement"):
-                                self.reset_sqlite_autoincrement()
-                    delete_articles([article_id])
+                    self.delete_articles([article_id]) 
+            return
 
         # Open article
-        if cmd == "open":
+        elif cmd == "open":
             ids_args = args[1:]
             if not ids_args:
                 print("Usage: article open <ids/ranges>")
@@ -508,8 +457,8 @@ class BriefShell(cmd.Cmd):
                 except subprocess.CalledProcessError as e:
                     print(f"Failed to open article {article_id}: {e}")
             return
-
-        print(f"Unknown article command '{cmd}'. Available commands: list, read, open, -")
+        else:
+            print(f"Unknown article command '{cmd}'. Available commands: list, read, open, -")
 ########################################################################
     # --- rss ---
     def do_rss(self, arg):
@@ -520,7 +469,6 @@ class BriefShell(cmd.Cmd):
         arg = ' '.join(arg) if isinstance(arg, list) else arg
         args = arg.split()
         cmd = args[0]
-
         c = self.conn.cursor()
 
         # Delete RSS feeds
