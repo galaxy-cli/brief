@@ -95,8 +95,8 @@ Read ALL articles
 - `article open <ids/ranges>`
 Open specified articles (example: article open 1-3,5,7-10)
 
-- `article read speed <value>`
-Set playback speed (e.g., article read speed 1.5)
+- `article speed <value>`
+Set playback speed (e.g., article speed 1.5)
 
 - `article <ids/ranges> -`
 Remove specific articles
@@ -144,7 +144,7 @@ Exit the program
 Articles are read aloud using **Festival** and **MPV**.  
 Playback speed can be adjusted via:
 
-- `article read speed 1.5`
+- `article speed 1.5`
 
 Default is `0.5x` (slower than normal); values >1.0 make speech faster.
 

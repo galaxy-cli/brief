@@ -194,6 +194,20 @@ class BriefShell(cmd.Cmd):
             if reset_func:
                 reset_func()
         return removed_any
+
+    def set_article_speed(self, arg):
+        args = arg.strip().split()
+        if len(args) < 2:
+            print("Usage: article speed <value>")
+            return
+        try:
+            speed = float(args[1])
+            if speed <= 0:
+                raise ValueError()
+            self.playback_speed = speed
+            print(f"Playback speed set to {speed}x")
+        except ValueError:
+            print("Invalid speed value. Please enter a positive number")
 ########################################################################
     # --- article ---
     @staticmethod
@@ -231,9 +245,8 @@ class BriefShell(cmd.Cmd):
     def do_article(self, arg):
         arg = arg.strip()
         if not arg:
-            print("Usage: article list | article read ... | article open ... | article read speed <value> | article - <ids/ranges>")
+            print("Usage: article list | article read ... | article open ... | article speed | article - ")
             return
-        arg = ' '.join(arg) if isinstance(arg, list) else arg
         args = arg.split()
         cmd = args[0]
 
@@ -325,6 +338,7 @@ class BriefShell(cmd.Cmd):
             )
             return
 
+        # List article
         if cmd == "list":
             if hasattr(self, "renumber_article_ids"):
                 self.renumber_article_ids()
@@ -339,26 +353,17 @@ class BriefShell(cmd.Cmd):
             print('\n'.join(map(self.article_summary, articles)))
             return
 
+        # Spead article
+        if cmd == "speed":
+            self.set_article_speed(' '.join(args))
+            return
+
         # Read article
         if cmd == "read":
             delete_after_read = False
             if len(args) > 1 and args[-1] == "-":
                 delete_after_read = True
                 args = args[:-1]
-
-            if len(args) > 1 and args[1].lower() == "speed":
-                if len(args) < 3:
-                    print("Usage: article read speed <value>")
-                    return
-                try:
-                    speed = float(args[2])
-                    if speed <= 0:
-                        raise ValueError()
-                    self.playback_speed = speed
-                    print(f"Playback speed set to {speed}x")
-                except ValueError:
-                    print("Invalid speed value. Please enter a positive number.")
-                return
             ids_args = args[1:]
             c = self.conn.cursor()
             def get_next_article_id():
@@ -417,7 +422,7 @@ class BriefShell(cmd.Cmd):
                 article_id = get_next_article_id()
                 if article_id is None:
                     if idx == 0:
-                        print("No valid article IDs to read.")
+                        print("No valid article IDs to read")
                     break
                 idx += 1
                 c.execute("SELECT title, source, content, publish_date FROM article WHERE id = ?", (article_id,))
@@ -478,7 +483,7 @@ class BriefShell(cmd.Cmd):
                 c.execute("SELECT id FROM article ORDER BY id ASC")
                 articles_to_open = [r['id'] for r in c.fetchall()]
                 if not articles_to_open:
-                    print("No articles to open.")
+                    print("No articles to open")
                     return
             else:
                 articles_to_open = self.parse_id_string(' '.join(ids_args))
