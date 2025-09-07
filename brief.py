@@ -464,49 +464,12 @@ class BriefShell(cmd.Cmd):
     def do_rss(self, arg):
         arg = arg.strip()
         if not arg:
-            print("Usage: rss add <url> | rss fetch <num> <feed_id|*> | rss list | rss order <feed_id> <feed_id> | rss - <ids>")
+            print("Usage: rss fetch <num> <feed_id|*> |  rss add <url> | rss source | rss order <feed_id> <feed_id> | rss - <ids>")
             return
         arg = ' '.join(arg) if isinstance(arg, list) else arg
         args = arg.split()
         cmd = args[0]
         c = self.conn.cursor()
-
-        # Delete RSS feeds
-        if cmd == "-":
-            if len(args) < 2:
-                print("Usage: rss - <ids> (comma separated supported) or rss - *")
-                return
-            id_str = ' '.join(args[1:]).strip()
-            self.delete_rows_with_confirmation(
-                table_name="rss_feeds",
-                display_columns=["id", "url"],
-                id_str=id_str,
-                renumber_func=getattr(self, "renumber_rss_feed_ids", None),
-                reset_func=getattr(self, "reset_sqlite_autoincrement_for_rss", None)
-            )
-            return
-
-        # Add RSS feed
-        if cmd == "add":
-            if len(args) < 2:
-                print("Usage: rss add <url>")
-                return
-            url = args[1]
-            feed = feedparser.parse(url)
-            if feed.bozo or not hasattr(feed, 'feed') or not feed.feed:
-                print(f"Invalid RSS feed URL or unable to parse feed: {url}")
-                return
-            try:
-                c.execute("SELECT id FROM rss_feeds WHERE url = ?", (url,))
-                if c.fetchone() is not None:
-                    print("You have already added this RSS feed")
-                    return
-                c.execute("INSERT INTO rss_feeds (url) VALUES (?)", (url,))
-                self.conn.commit()
-                print(f"Added RSS feed: {url}")
-            except sqlite3.Error as e:
-                print(f"Database error: {e}")
-            return
 
         # Fetch RSS feed articles
         if cmd == "fetch":
@@ -577,8 +540,30 @@ class BriefShell(cmd.Cmd):
                 fetch_from_feed(feed_id, feed['url'])
             return
 
-        # List RSS feeds
-        if cmd == "list":
+        # Add RSS feed
+        elif cmd == "add":
+            if len(args) < 2:
+                print("Usage: rss add <url>")
+                return
+            url = args[1]
+            feed = feedparser.parse(url)
+            if feed.bozo or not hasattr(feed, 'feed') or not feed.feed:
+                print(f"Invalid RSS feed URL or unable to parse feed: {url}")
+                return
+            try:
+                c.execute("SELECT id FROM rss_feeds WHERE url = ?", (url,))
+                if c.fetchone() is not None:
+                    print("You have already added this RSS feed")
+                    return
+                c.execute("INSERT INTO rss_feeds (url) VALUES (?)", (url,))
+                self.conn.commit()
+                print(f"Added RSS feed: {url}")
+            except sqlite3.Error as e:
+                print(f"Database error: {e}")
+            return
+
+        # List RSS feed sources
+        elif cmd == "source":
             c.execute("SELECT id, url FROM rss_feeds ORDER BY id ASC")
             feeds = c.fetchall()
             if not feeds:
@@ -589,7 +574,7 @@ class BriefShell(cmd.Cmd):
             return
 
         # Sort order of RSS feed
-        if cmd == "order":
+        elif cmd == "order":
             if len(args) != 3:
                 print("Usage: rss order <from_id> <to_id>")
                 return
@@ -623,13 +608,28 @@ class BriefShell(cmd.Cmd):
                 self.conn.commit()
                 print(f"Moved RSS feed ID {from_id} to position {to_id}")
                 self.renumber_rss_feed_ids()
-                self.reset_sqlite_autoincrement_for_rss()
+                self.reset_sqlite_autoincrement()
             except sqlite3.Error as e:
                 print(f"Database error while reordering: {e}")
                 self.conn.rollback()
             return
 
-        print("Unknown rss command. Available: add, fetch, list, order, -")
+        # Delete RSS feeds
+        elif cmd == "-":
+            if len(args) < 2:
+                print("Usage: rss - <ids> (comma separated supported) or rss - *")
+                return
+            id_str = ' '.join(args[1:]).strip()
+            self.delete_rows_with_confirmation(
+                table_name="rss_feeds",
+                display_columns=["id", "url"],
+                id_str=id_str,
+                renumber_func=getattr(self, "renumber_rss_feed_ids", None),
+                reset_func=getattr(self, "reset_sqlite_autoincrement", None)
+            )
+            return
+        else:
+            print("Unknown rss command. Available: fetch, add, source, order, -")
 ########################################################################
     # --- url ---
     def do_url(self, arg):
