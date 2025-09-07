@@ -208,6 +208,14 @@ class BriefShell(cmd.Cmd):
             print(f"Playback speed set to {speed}x")
         except ValueError:
             print("Invalid speed value. Please enter a positive number")
+
+    def renumber_rss_positions(self):
+        c = self.conn.cursor()
+        c.execute("SELECT id FROM rss_feeds ORDER BY position ASC")
+        rows = c.fetchall()
+        for new_pos, row in enumerate(rows, start=1):
+            c.execute("UPDATE rss_feeds SET position = ? WHERE id = ?", (new_pos, row['id']))
+        self.conn.commit()
 ########################################################################
     # --- article ---
     @staticmethod
@@ -465,28 +473,38 @@ class BriefShell(cmd.Cmd):
         """RSS feed commands"""
         arg = arg.strip()
         if not arg:
-            print("Usage: rss fetch <num> <feed_id|*> |  rss add <url> | rss source | rss order <feed_id> <feed_id> | rss - <ids>")
+            print("Usage: rss list | rss fetch <num> <url1> [<url2> ...] | rss add <url1> [<url2> ...] | rss - <ids>")
             return
         arg = ' '.join(arg) if isinstance(arg, list) else arg
         args = arg.split()
         cmd = args[0]
         c = self.conn.cursor()
 
+        # List RSS feed sources (simple URLs list, no numbers)
+        if cmd == "list":
+            c.execute("SELECT url FROM rss_feeds ORDER BY position ASC")
+            feeds = c.fetchall()
+            if not feeds:
+                print("No RSS feeds added yet")
+                return
+            for f in feeds:
+                print(f"{f['url']}")
+            return
+
         # Fetch RSS feed articles
         if cmd == "fetch":
-            if len(args) != 3:
-                print("Usage: rss fetch <num> <feed_id|*>")
+            if len(args) < 3:
+                print("Usage: rss fetch <num> <url1> [<url2> ...]")
                 return
-            num_str, feed_id_str = args[1], args[2]
             try:
-                num_to_fetch = int(num_str)
+                num_to_fetch = int(args[1])
                 if num_to_fetch < 1:
                     raise ValueError()
             except ValueError:
-                print("Specify a number greater than 0, e.g. rss fetch 5 1 or rss fetch 3 *")
+                print("Specify a number greater than 0, e.g. rss fetch 5 https://example.com/rss")
                 return
-
-            def fetch_from_feed(feed_id, feed_url):
+            urls = args[2:]
+            def fetch_from_feed(feed_url):
                 parsed = feedparser.parse(feed_url)
                 count = 0
                 for entry in parsed.entries[:num_to_fetch]:
@@ -504,8 +522,8 @@ class BriefShell(cmd.Cmd):
                             content = article.text
                             fetched_date = article.publish_date.isoformat() if article.publish_date else None
                             c.execute("""
-                            INSERT INTO article (url, title, content, source, fetched_date)
-                            VALUES (?, ?, ?, ?, ?)
+                                INSERT INTO article (url, title, content, source, fetched_date)
+                                VALUES (?, ?, ?, ?, ?)
                             """, (url, title, content, feed_url, fetched_date))
                             self.conn.commit()
                             print(f"Saved article: {title}")
@@ -513,109 +531,41 @@ class BriefShell(cmd.Cmd):
                         except Exception as e:
                             print(f"Failed to parse article {url}: {e}")
                 if count == 0:
-                    print("No new articles were added")
+                    print(f"No new articles were added for feed: {feed_url}")
                 else:
-                    print(f"Finished fetching {count} new articles for feed ID {feed_id}.")
-
-            if feed_id_str == "*":
-                c.execute("SELECT id, url FROM rss_feeds ORDER BY id ASC")
-                feeds = c.fetchall()
-                if not feeds:
-                    print("No RSS feeds to fetch from")
-                    return
-                for feed in feeds:
-                    print(f"Fetching {num_to_fetch} entries from feed ID {feed['id']}: {feed['url']}")
-                    fetch_from_feed(feed['id'], feed['url'])
-            else:
-                try:
-                    feed_id = int(feed_id_str)
-                except ValueError:
-                    print("Feed ID must be an integer or '*'")
-                    return
-                c.execute("SELECT url FROM rss_feeds WHERE id = ?", (feed_id,))
-                feed = c.fetchone()
-                if not feed:
-                    print(f"No RSS feed found with ID {feed_id}")
-                    return
-                print(f"Fetching {num_to_fetch} entries from feed ID {feed_id}: {feed['url']}")
-                fetch_from_feed(feed_id, feed['url'])
+                    print(f"Finished fetching {count} new articles for feed: {feed_url}")
+            for feed_url in urls:
+                print(f"Fetching {num_to_fetch} entries from feed: {feed_url}")
+                fetch_from_feed(feed_url)
             return
 
-        # Add RSS feed
+        # Add RSS feeds (same as before, supports multiple URLs)
         elif cmd == "add":
             if len(args) < 2:
-                print("Usage: rss add <url>")
+                print("Usage: rss add <url1> [<url2> ...]")
                 return
-            url = args[1]
-            feed = feedparser.parse(url)
-            if feed.bozo or not hasattr(feed, 'feed') or not feed.feed:
-                print(f"Invalid RSS feed URL or unable to parse feed: {url}")
-                return
-            try:
-                c.execute("SELECT id FROM rss_feeds WHERE url = ?", (url,))
-                if c.fetchone() is not None:
-                    print("You have already added this RSS feed")
-                    return
-                c.execute("INSERT INTO rss_feeds (url) VALUES (?)", (url,))
-                self.conn.commit()
-                print(f"Added RSS feed: {url}")
-            except sqlite3.Error as e:
-                print(f"Database error: {e}")
+            urls_to_add = args[1:]
+            for url in urls_to_add:
+                feed = feedparser.parse(url)
+                if feed.bozo or not hasattr(feed, 'feed') or not feed.feed:
+                    print(f"Invalid RSS feed URL or unable to parse feed: {url}")
+                    continue
+                try:
+                    c.execute("SELECT id FROM rss_feeds WHERE url = ?", (url,))
+                    if c.fetchone() is not None:
+                        print(f"You have already added this RSS feed: {url}")
+                        continue
+                    c.execute("INSERT INTO rss_feeds (url) VALUES (?)", (url,))
+                    inserted_id = c.lastrowid
+                    # Set new feed position to inserted_id
+                    c.execute("UPDATE rss_feeds SET position = ? WHERE id = ?", (inserted_id, inserted_id))
+                    self.conn.commit()
+                    print(f"Added RSS feed: {url}")
+                except sqlite3.Error as e:
+                    print(f"Database error adding {url}: {e}")
             return
 
-        # List RSS feed sources
-        elif cmd == "source":
-            c.execute("SELECT id, url FROM rss_feeds ORDER BY id ASC")
-            feeds = c.fetchall()
-            if not feeds:
-                print("No RSS feeds added yet")
-                return
-            for f in feeds:
-                print(f"{f['id']}. {f['url']}")
-            return
-
-        # Sort order of RSS feed
-        elif cmd == "order":
-            if len(args) != 3:
-                print("Usage: rss order <from_id> <to_id>")
-                return
-            try:
-                from_id, to_id = int(args[1]), int(args[2])
-            except ValueError:
-                print("Feed IDs must be integers")
-                return
-            c.execute("SELECT id FROM rss_feeds WHERE id IN (?, ?)", (from_id, to_id))
-            rows = c.fetchall()
-            if len(rows) != 2:
-                print("Both feed IDs must exist")
-                return
-            try:
-                TEMP_ID_1 = -9999
-                TEMP_ID_2 = -9998
-                c.execute("UPDATE rss_feeds SET id = ? WHERE id = ?", (TEMP_ID_1, from_id))
-                if from_id < to_id:
-                    c.execute("""
-                        UPDATE rss_feeds
-                        SET id = id - 1
-                        WHERE id > ? AND id <= ?
-                    """, (from_id, to_id))
-                elif from_id > to_id:
-                    c.execute("""
-                        UPDATE rss_feeds
-                        SET id = id + 1
-                        WHERE id >= ? AND id < ?
-                    """, (to_id, from_id))
-                c.execute("UPDATE rss_feeds SET id = ? WHERE id = ?", (to_id, TEMP_ID_1))
-                self.conn.commit()
-                print(f"Moved RSS feed ID {from_id} to position {to_id}")
-                self.renumber_rss_feed_ids()
-                self.reset_sqlite_autoincrement()
-            except sqlite3.Error as e:
-                print(f"Database error while reordering: {e}")
-                self.conn.rollback()
-            return
-
-        # Delete RSS feeds
+        # Delete RSS feeds command (unchanged)
         elif cmd == "-":
             if len(args) < 2:
                 print("Usage: rss - <ids> (comma separated supported) or rss - *")
@@ -630,7 +580,7 @@ class BriefShell(cmd.Cmd):
             )
             return
         else:
-            print("Unknown rss command. Available: fetch, add, source, order, -")
+            print("Unknown rss command. Available: list, fetch, add, -")
 ########################################################################
     # --- url ---
     def do_url(self, arg):
