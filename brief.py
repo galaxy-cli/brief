@@ -243,6 +243,7 @@ class BriefShell(cmd.Cmd):
         return sorted(ids)
 
     def do_article(self, arg):
+        """News article commands"""
         arg = arg.strip()
         if not arg:
             print("Usage: article list | article read ... | article open ... | article speed | article - ")
@@ -366,7 +367,6 @@ class BriefShell(cmd.Cmd):
                 args = args[:-1]
             ids_args = args[1:]
             c = self.conn.cursor()
-            
             if ids_args == ["*"]:
                 c.execute("SELECT id FROM article ORDER BY id ASC")
                 articles_to_read = [r['id'] for r in c.fetchall()]
@@ -462,6 +462,7 @@ class BriefShell(cmd.Cmd):
 ########################################################################
     # --- rss ---
     def do_rss(self, arg):
+        """RSS feed commands"""
         arg = arg.strip()
         if not arg:
             print("Usage: rss fetch <num> <feed_id|*> |  rss add <url> | rss source | rss order <feed_id> <feed_id> | rss - <ids>")
@@ -633,7 +634,7 @@ class BriefShell(cmd.Cmd):
 ########################################################################
     # --- url ---
     def do_url(self, arg):
-        """URL command with subcommands: url add <article_url>"""
+        """URL commands"""
         arg = ' '.join(arg) if isinstance(arg, list) else arg
         args = arg.split()
         if not args:
@@ -673,7 +674,7 @@ class BriefShell(cmd.Cmd):
     # --- cmd ---
     def do_cmd(self, arg):
         """Lists all available commands"""
-        commands = ["article\n", "rss\n", "url\n", "exit"]
+        commands = ["article\n", "rss\n", "url"]
         print(''.join(commands))
 
     # --- help ---
@@ -683,15 +684,22 @@ class BriefShell(cmd.Cmd):
             return super().do_help(arg)
         else:
             commands = [cmd[3:] for cmd in dir(self) if cmd.startswith('do_')]
-            max_len = max(len(cmd) for cmd in commands)
-            for cmd in sorted(commands):
+            order = ['article', 'rss', 'url', 'cmd', 'help', 'exit']
+            def sort_key(cmd):
+                try:
+                    return order.index(cmd)
+                except ValueError:
+                    return len(order) + ord(cmd[0])
+            commands_sorted = sorted(commands, key=sort_key)
+            max_len = max(len(cmd) for cmd in commands_sorted)
+            for cmd in commands_sorted:
                 func = getattr(self, 'do_' + cmd)
                 doc = func.__doc__.strip().split('\n')[0] if func.__doc__ else ''
                 print(f"{cmd.ljust(max_len)} {doc}")
 
     # --- exit ---
     def do_exit(self, arg):
-        """Exit the CLI"""
+        """Exit the shell"""
         print("Goodbye!")
         self.conn.close()
         return True
