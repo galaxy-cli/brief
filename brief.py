@@ -286,7 +286,7 @@ class BriefShell(cmd.Cmd):
                 c.execute(f"SELECT {', '.join(display_columns)} FROM {table_name} ORDER BY id ASC")
                 rows_to_delete = c.fetchall()
                 if not rows_to_delete:
-                    print(f"No records found to delete in {table_name}.")
+                    print(f"No records found to delete in {table_name}")
                     return False
             else:
                 ids = self.parse_id_string(id_str)
@@ -418,7 +418,7 @@ class BriefShell(cmd.Cmd):
                 finally:
                     os.remove(temp_filename)
                 if delete_after_read:
-                    self.delete_articles([article_id]) 
+                    delete_articles([article_id]) 
             return
 
         # Open article
