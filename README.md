@@ -105,17 +105,23 @@ Remove specific articles
 Remove ALL articles
 
 #### RSS Commands
-- `rss fetch <num> <feed_id>`
-Fetch <number> of articles from given feed
+Usage: rss fetch <num> <feed_id|...|*> 
 
-- `rss - <feed_id>`
-Remove a feed by ID
-
-- `rss add <feed_url>`
-Add a new RSS feed
 
 - `rss list`
 List all RSS feed sources
+
+- `rss fetch <num> <id> [<id> ...]`
+Fetch <num> of articles from given feed
+
+- `rss fetch * <id> [<id> ...]`
+Fetch <num> from all articles
+
+- `rss - <id>`
+Remove a feed by ID
+
+- `rss add <url1> [<url2> ...]`
+Add a new RSS feed
 
 #### URL Commands
 - `url add <article_url>`
