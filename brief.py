@@ -74,7 +74,9 @@ class BriefShell(cmd.Cmd):
         self.conn = sqlite3.connect(DB_FILENAME)
         self.conn.row_factory = sqlite3.Row
         self.create_tables()
+        self.migrate_add_position_column_if_missing()
         self.playback_speed = 0.5
+
 
     def create_tables(self):
         c = self.conn.cursor()
@@ -216,6 +218,19 @@ class BriefShell(cmd.Cmd):
         for new_pos, row in enumerate(rows, start=1):
             c.execute("UPDATE rss_feeds SET position = ? WHERE id = ?", (new_pos, row['id']))
         self.conn.commit()
+
+    def migrate_add_position_column_if_missing(self):
+        c = self.conn.cursor()
+        c.execute("PRAGMA table_info(rss_feeds)")
+        columns = [row["name"] for row in c.fetchall()]
+        if "position" not in columns:
+            print("Adding 'position' column to rss_feeds table")
+            c.execute("ALTER TABLE rss_feeds ADD COLUMN position INTEGER")
+            self.conn.commit()
+            c.execute("UPDATE rss_feeds SET position = id")
+            self.conn.commit()
+        else:
+            print("'position' column already exists in rss_feeds")
 ########################################################################
     # --- article ---
     @staticmethod
@@ -470,6 +485,7 @@ class BriefShell(cmd.Cmd):
 ########################################################################
     # --- rss ---
     def do_rss(self, arg):
+        """RSS feed commands"""
         arg = arg.strip()
         if not arg:
             print("Usage: rss fetch <num> <feed_id|...|*> | rss add <url1> [<url2> ...] | rss list | rss - <ids>")
