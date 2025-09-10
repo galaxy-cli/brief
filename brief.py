@@ -10,7 +10,8 @@ import re
 import sys
 import itertools
 import importlib.util
-#######################################################################
+
+
 PIP_PACKAGE_TO_MODULE = {"feedparser": "feedparser", "newspaper3k": "newspaper", "lxml_html_clean": "lxml_html_clean",  "pyyaml": "yaml", "cssselect": "cssselect", "Pillow": "PIL"}
 
 def check_apt_dependencies(packages):
@@ -61,7 +62,10 @@ def install_packages():
         else:
             print("Cannot continue without required pip packages")
             sys.exit(1)
-########################################################################
+
+
+
+
 # --- BreifShell ---
 DB_FILENAME = "news.db"
 TTS_SCRIPT = os.path.expanduser("~/.local/bin/tts")
@@ -74,9 +78,7 @@ class BriefShell(cmd.Cmd):
         self.conn = sqlite3.connect(DB_FILENAME)
         self.conn.row_factory = sqlite3.Row
         self.create_tables()
-        self.migrate_add_position_column_if_missing()
         self.playback_speed = 0.5
-
 
     def create_tables(self):
         c = self.conn.cursor()
@@ -125,25 +127,11 @@ class BriefShell(cmd.Cmd):
         ids = set(itertools.chain.from_iterable(map(parse_range, parts)))
         return sorted(ids)
 
-    def renumber_rss_feed_ids(self):
-        try:
-            c = self.conn.cursor()
-            c.execute("SELECT id FROM rss_feeds ORDER BY id ASC")
-            rows = c.fetchall()
-            for new_id, row in enumerate(rows, start=1):
-                old_id = row['id']
-                if old_id != new_id:
-                    c.execute("UPDATE rss_feeds SET id = ? WHERE id = ?", (new_id, old_id))
-            self.conn.commit()
-        except sqlite3.Error as e:
-            print(f"Error renumbering rss feed IDs: {e}")
-            self.conn.rollback()
-
     def reset_sqlite_autoincrement(self):
         try:
             c = self.conn.cursor()
             c.execute("SELECT MAX(id) AS max_id FROM article")
-            row = c.fetchone()
+            row = c.fetchone() 
             max_id = row['max_id'] if row and row['max_id'] is not None else 0
             if max_id == 0:
                 c.execute("DELETE FROM sqlite_sequence WHERE name='article'")
@@ -157,7 +145,7 @@ class BriefShell(cmd.Cmd):
     def delete_rows_with_confirmation(self, table_name, display_columns, id_str, renumber_func=None, reset_func=None):
         c = self.conn.cursor()
         if id_str == "*":
-            c.execute(f"SELECT {', '.join(display_columns)} FROM {table_name} ORDER BY id ASC")
+            c.execute(f"SELECT id, url FROM {table_name} ORDER BY id ASC")
             rows_to_delete = c.fetchall()
             if not rows_to_delete:
                 print(f"No records found to delete in {table_name}.")
@@ -165,21 +153,20 @@ class BriefShell(cmd.Cmd):
         else:
             ids = self.parse_id_string(id_str)
             if not ids:
-                print("No valid IDs provided to delete")
+                print("No valid ID provided to delete")
                 return False
             placeholders = ','.join('?' * len(ids))
-            c.execute(f"SELECT {', '.join(display_columns)} FROM {table_name} WHERE id IN ({placeholders}) ORDER BY id ASC", ids)
+            c.execute(f"SELECT id, url FROM {table_name} WHERE id IN ({placeholders}) ORDER BY id ASC", ids)
             rows_to_delete = c.fetchall()
             if not rows_to_delete:
-                print(f"No records found with the specified IDs in {table_name}")
+                print(f"No records found with the specified ID in {table_name}")
                 return False
         print(f"Records to be deleted from {table_name}:")
         for row in rows_to_delete:
-            display_str = ', '.join(str(row[col]) for col in display_columns)
-            print(display_str)
+            print(f"{row['id']}. {row['url']}")
         confirm = input("Are you sure you want to delete these records? [Y/n] ").strip().lower()
         if confirm != 'y':
-            print("Deletion cancelled.")
+            print("Deletion cancelled")
             return False
         removed_any = False
         for row in rows_to_delete:
@@ -188,7 +175,7 @@ class BriefShell(cmd.Cmd):
                 print(f"Deleted record ID {row['id']}")
                 removed_any = True
             else:
-                print(f"Record with ID {row['id']} was not found or already deleted.")
+                print(f"Record with ID {row['id']} was not found or already deleted")
         if removed_any:
             self.conn.commit()
             if renumber_func:
@@ -197,42 +184,17 @@ class BriefShell(cmd.Cmd):
                 reset_func()
         return removed_any
 
-    def set_article_speed(self, arg):
-        args = arg.strip().split()
-        if len(args) < 2:
-            print("Usage: article speed <value>")
-            return
-        try:
-            speed = float(args[1])
-            if speed <= 0:
-                raise ValueError()
-            self.playback_speed = speed
-            print(f"Playback speed set to {speed}x")
-        except ValueError:
-            print("Invalid speed value. Please enter a positive number")
-
-    def renumber_rss_positions(self):
-        c = self.conn.cursor()
-        c.execute("SELECT id FROM rss_feeds ORDER BY position ASC")
+    @staticmethod
+    def renumber_ids(table_name):
+        c = shell.conn.cursor()
+        c.execute(f"SELECT id FROM {table_name} ORDER BY id ASC")
         rows = c.fetchall()
-        for new_pos, row in enumerate(rows, start=1):
-            c.execute("UPDATE rss_feeds SET position = ? WHERE id = ?", (new_pos, row['id']))
-        self.conn.commit()
+        for new_id, row in enumerate(rows, start=1):
+            old_id = row['id']
+            if old_id != new_id:
+                c.execute(f"UPDATE {table_name} SET id = ? WHERE id = ?", (new_id, old_id))
+        shell.conn.commit()
 
-    def migrate_add_position_column_if_missing(self):
-        c = self.conn.cursor()
-        c.execute("PRAGMA table_info(rss_feeds)")
-        columns = [row["name"] for row in c.fetchall()]
-        if "position" not in columns:
-            print("Adding 'position' column to rss_feeds table")
-            c.execute("ALTER TABLE rss_feeds ADD COLUMN position INTEGER")
-            self.conn.commit()
-            c.execute("UPDATE rss_feeds SET position = id")
-            self.conn.commit()
-        else:
-            print("'position' column already exists in rss_feeds")
-########################################################################
-    # --- article ---
     @staticmethod
     def write_temp_file(content):
         tf = tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8', suffix=".txt")
@@ -246,48 +208,18 @@ class BriefShell(cmd.Cmd):
         site_name = site_name[4:] if site_name.startswith("www.") else site_name
         return f"{a['id']}. {a['title']} (source: {site_name})"
 
-    @staticmethod
-    def parse_id_string(id_string):
-        def parse_part(part):
-            part = part.strip()
-            if '-' in part:
-                try:
-                    start, end = map(int, part.split('-', 1))
-                    return range(start, end + 1) if start <= end else []
-                except ValueError:
-                    return []
-            else:
-                try:
-                    return [int(part)]
-                except ValueError:
-                    return []
-        parts = id_string.replace(',', ' ').split()
-        ids = set(itertools.chain.from_iterable(map(parse_part, parts)))
-        return sorted(ids)
 
+
+
+    # --- article ---
     def do_article(self, arg):
         """News article commands"""
         arg = arg.strip()
         if not arg:
-            print("Usage: article list | article read ... | article open ... | article speed | article - ")
+            print("Usage: `article list` | `article read NUM [NUM-NUM] *` | `article open NUM [NUM-NUM]` | `article speed NUM` | `article - NUM [NUM-NUM]| *` ")
             return
         args = arg.split()
         cmd = args[0]
-
-        def renumber_article_ids():
-            c = self.conn.cursor()
-            c.execute("SELECT id FROM article ORDER BY id ASC")
-            rows = c.fetchall()
-            for new_id, row in enumerate(rows, start=1):
-                old_id = row['id']
-                if old_id != new_id:
-                    c.execute("UPDATE article SET id = ? WHERE id = ?", (new_id, old_id))
-            self.conn.commit()
-
-        def reset_sqlite_autoincrement():
-            c = self.conn.cursor()
-            c.execute("DELETE FROM sqlite_sequence WHERE name = 'article'")
-            self.conn.commit()
 
         def delete_articles(article_ids):
             c = self.conn.cursor()
@@ -301,74 +233,15 @@ class BriefShell(cmd.Cmd):
                     print(f"No article found with ID {art_id}")
             if removed_any:
                 self.conn.commit()
-                renumber_article_ids()
-                reset_sqlite_autoincrement()
-        
-        def delete_rows_with_confirmation(self, table_name, display_columns, id_str, renumber_func=None, reset_func=None):
-            c = self.conn.cursor()
-            if id_str == "*":
-                c.execute(f"SELECT {', '.join(display_columns)} FROM {table_name} ORDER BY id ASC")
-                rows_to_delete = c.fetchall()
-                if not rows_to_delete:
-                    print(f"No records found to delete in {table_name}")
-                    return False
-            else:
-                ids = self.parse_id_string(id_str)
-                if not ids:
-                    print("No valid IDs provided to delete")
-                    return False
-                placeholders = ','.join('?' * len(ids))
-                c.execute(f"SELECT {', '.join(display_columns)} FROM {table_name} WHERE id IN ({placeholders}) ORDER BY id ASC", ids)
-                rows_to_delete = c.fetchall()
-                if not rows_to_delete:
-                    print(f"No records found with the specified IDs in {table_name}")
-                    return False
-            print(f"Records to be deleted from {table_name}:")
-            for row in rows_to_delete:
-                display_str = ', '.join(str(row[col]) for col in display_columns)
-                print(display_str)
-            confirm = input("Are you sure you want to delete these records? [Y/n] ").strip().lower()
-            if confirm != 'y':
-                print("Deletion cancelled")
-                return False
-            removed_any = False
-            for row in rows_to_delete:
-                c.execute(f"DELETE FROM {table_name} WHERE id = ?", (row['id'],))
-                if c.rowcount > 0:
-                    print(f"Deleted record ID {row['id']}")
-                    removed_any = True
-                else:
-                    print(f"Record with ID {row['id']} was not found or already deleted")
-            if removed_any:
-                self.conn.commit()
-                if renumber_func:
-                    renumber_func()
-                if reset_func:
-                    reset_func()
-            return removed_any
-
-        # Delete articles
-        if cmd == "-":
-            if len(args) < 2:
-                print("Usage: article - <id list> or article - *")
-                return
-            id_str = ' '.join(args[1:]).strip()
-            self.delete_rows_with_confirmation(
-                table_name="article",
-                display_columns=["id", "title"],
-                id_str=id_str,
-                renumber_func=getattr(self, "renumber_article_ids", None),
-                reset_func=getattr(self, "reset_sqlite_autoincrement", None)
-            )
-            return
-
-        # List article
-        elif cmd == "list":
-            if hasattr(self, "renumber_article_ids"):
-                self.renumber_article_ids()
-            if hasattr(self, "reset_sqlite_autoincrement"):
+                self.renumber_ids()
                 self.reset_sqlite_autoincrement()
 
+        # List article
+        if cmd == "list":
+            if hasattr(self, "renumber_ids"):
+                self.renumber_ids("article")
+            if hasattr(self, "reset_sqlite_autoincrement"):
+                self.reset_sqlite_autoincrement()
             c = self.conn.cursor()
             c.execute("SELECT id, title, source FROM article ORDER BY id ASC")
             articles = c.fetchall()
@@ -376,11 +249,6 @@ class BriefShell(cmd.Cmd):
                 print("No articles saved yet")
                 return
             print('\n'.join(map(self.article_summary, articles)))
-
-        # Spead article
-        elif cmd == "speed":
-            self.set_article_speed(' '.join(args))
-            return
 
         # Read article
         elif cmd == "read":
@@ -448,7 +316,7 @@ class BriefShell(cmd.Cmd):
         elif cmd == "open":
             ids_args = args[1:]
             if not ids_args:
-                print("Usage: article open <ids/ranges>")
+                print("Usage: `article open NUM [NUM-NUM]`")
                 return
             c = self.conn.cursor()
             if ids_args == "*":
@@ -480,25 +348,58 @@ class BriefShell(cmd.Cmd):
                 except subprocess.CalledProcessError as e:
                     print(f"Failed to open article {article_id}: {e}")
             return
+
+        # Spead article
+        elif cmd == "speed":
+            args = arg.strip().split()
+            if len(args) < 2:
+                print("Usage: `article speed NUM`")
+                return
+            try:
+                speed = float(args[1])
+                if speed <= 0:
+                    raise ValueError()
+                self.playback_speed = speed
+                print(f"Playback speed set to {speed}x")
+            except ValueError:
+                print("Invalid speed value. Please enter a positive number")
+
+        # Delete articles
+        elif cmd == "-":
+            if len(args) < 2:
+                print("Usage: `article - NUM [NUM-NUM] *`")
+                return
+            id_str = ' '.join(args[1:]).strip()
+            self.delete_rows_with_confirmation(
+                table_name="article",
+                display_columns=["id", "title"],
+                id_str=id_str,
+                renumber_func=self.renumber_ids("article"),
+                reset_func=getattr(self, "reset_sqlite_autoincrement", None)
+            )
+            return
+
         else:
-            print(f"Unknown article command '{cmd}'. Available commands: list, read, open, -")
-########################################################################
+            print(f"Unknown article command '{cmd}'. Available commands: `list`, `read`, `open`, `-`")
+
+
+
+
     # --- rss ---
     def do_rss(self, arg):
         """RSS feed commands"""
         arg = arg.strip()
-        if not arg:
-            print("Usage: rss fetch <num> <feed_id|...|*> | rss add <url1> [<url2> ...] | rss list | rss - <ids>")
-            return
-
-        arg = ' '.join(arg) if isinstance(arg, list) else arg
         args = arg.split()
+        if not arg:
+            print("Usage: `rss fetch NUM [NUM-NUM] *` | `rss add URL [URL URL]` | `rss list` | `rss - NUM [NUM-NUM] *`")
+            return
         cmd = args[0]
         c = self.conn.cursor()
-
+        
+        # Fetch updated articles from RSS feed
         if cmd == "fetch":
             if len(args) < 3:
-                print("Usage: rss fetch <num> <feed_id|feed_id ...|*>")
+                print("Usage: `rss fetch NUM [NUM...|*]`")
                 return
             try:
                 num_to_fetch = int(args[1])
@@ -507,10 +408,11 @@ class BriefShell(cmd.Cmd):
             except ValueError:
                 print("Specify a number greater than 0, e.g. rss fetch 5 1 2 or rss fetch 3 *")
                 return
-
             feed_ids = args[2:]
             if feed_ids == ["*"]:
-                c.execute("SELECT id, url FROM rss_feeds ORDER BY position ASC")
+                positions = [int(p) for p in feed_positions]
+                placeholders = ','.join('?' for _ in positions)
+                c.execute(f"SELECT id, url FROM rss_feeds WHERE id IN ({placeholders}) ORDER BY id ASC", positions)
                 feeds = c.fetchall()
             else:
                 feed_ids_int = []
@@ -520,13 +422,11 @@ class BriefShell(cmd.Cmd):
                     print("Feed IDs must be integers or *")
                     return
                 placeholders = ','.join('?' for _ in feed_ids_int)
-                c.execute(f"SELECT id, url FROM rss_feeds WHERE id IN ({placeholders}) ORDER BY position ASC", feed_ids_int)
+                c.execute(f"SELECT id, url FROM rss_feeds WHERE id IN ({placeholders}) ORDER BY id ASC", feed_ids_int)
                 feeds = c.fetchall()
-
             if not feeds:
                 print("No matching RSS feeds found to fetch from")
                 return
-
             def fetch_from_feed(feed_id, feed_url):
                 parsed = feedparser.parse(feed_url)
                 count = 0
@@ -557,16 +457,15 @@ class BriefShell(cmd.Cmd):
                     print(f"No new articles were added for feed ID {feed_id}")
                 else:
                     print(f"Finished fetching {count} new articles for feed ID {feed_id}.")
-
             for feed in feeds:
                 print(f"Fetching {num_to_fetch} entries from feed ID {feed['id']}: {feed['url']}")
                 fetch_from_feed(feed['id'], feed['url'])
-
             return
 
+        # Add RSS feed
         elif cmd == "add":
             if len(args) < 2:
-                print("Usage: rss add <url1> [<url2> ...]")
+                print("Usage: rss add URL [URL...]")
                 return
             urls_to_add = args[1:]
             for url in urls_to_add:
@@ -581,57 +480,56 @@ class BriefShell(cmd.Cmd):
                         continue
                     c.execute("INSERT INTO rss_feeds (url) VALUES (?)", (url,))
                     inserted_id = c.lastrowid
-                    c.execute("UPDATE rss_feeds SET position = ? WHERE id = ?", (inserted_id, inserted_id))
+                    c.execute("UPDATE rss_feeds SET id = ? WHERE id = ?", (inserted_id, inserted_id))
                     self.conn.commit()
                     print(f"Added RSS feed: {url}")
                 except sqlite3.Error as e:
                     print(f"Database error adding {url}: {e}")
             return
 
+        # List RSS feed
         elif cmd == "list":
-            c.execute("SELECT url FROM rss_feeds ORDER BY position ASC")
+            c.execute("SELECT id, url FROM rss_feeds ORDER BY id ASC")
             feeds = c.fetchall()
-            if not feeds:
-                print("No RSS feeds added yet")
-                return
-            for idx, f in enumerate(feeds, start=1):
-                print(f"{idx}. {f['url']}")
+            for feed in feeds:
+                print(f"{feed['id']}. {feed['url']}")
             return
 
+        # Delete RSS feeds
         elif cmd == "-":
             if len(args) < 2:
-                print("Usage: rss - <ids> (comma separated supported) or rss - *")
+                print("Usage: `rss - ID` (comma separated supported) or `rss - *`")
                 return
             id_str = ' '.join(args[1:]).strip()
-            rows_deleted = self.delete_rows_with_confirmation(
+            self.delete_rows_with_confirmation(
                 table_name="rss_feeds",
                 display_columns=["id", "url"],
                 id_str=id_str,
-                renumber_func=self.renumber_rss_positions,
+                renumber_func=self.renumber_ids("rss_feeds"),
                 reset_func=getattr(self, "reset_sqlite_autoincrement", None)
             )
-            if rows_deleted:
-                print("Deleted feeds and updated positions.")
             return
 
         else:
-            print("Unknown rss command. Available: fetch, add, list, -")
+            print("Unknown `rss` command. Available: `fetch`, `add`, `list`, `-`")
 
-########################################################################
+
+
+
     # --- url ---
     def do_url(self, arg):
         """URL commands"""
         arg = ' '.join(arg) if isinstance(arg, list) else arg
         args = arg.split()
         if not args:
-            print("Usage: url add <article_url>")
+            print("Usage: `url add URL`")
             return
         cmd = args[0]
 
         # Add URL
         if cmd == "add":
             if len(args) < 2:
-                print("Usage: url add <article_url>")
+                print("Usage: `url add URL`")
                 return
             url = args[1]
             c = self.conn.cursor()
@@ -655,13 +553,19 @@ class BriefShell(cmd.Cmd):
             except Exception as e:
                 print(f"Failed to parse article {url}: {e}")
         else:
-            print("Unknown url command. Available: add")
-########################################################################
+            print("Unknown `url` command. Available: `add`")
+
+
+
+
     # --- cmd ---
     def do_cmd(self, arg):
         """Lists all available commands"""
         commands = ["article\n", "rss\n", "url"]
         print(''.join(commands))
+
+
+
 
     # --- help ---
     def do_help(self, arg):
@@ -683,13 +587,18 @@ class BriefShell(cmd.Cmd):
                 doc = func.__doc__.strip().split('\n')[0] if func.__doc__ else ''
                 print(f"{cmd.ljust(max_len)} {doc}")
 
+
+
     # --- exit ---
     def do_exit(self, arg):
         """Exit the shell"""
         print("Goodbye!")
         self.conn.close()
         return True
-########################################################################
+
+
+
+
 if __name__ == '__main__':
     install_packages()
     shell = BriefShell()

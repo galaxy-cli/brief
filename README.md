@@ -86,45 +86,42 @@ Type cmd to view commands and help or ? for help
 - `article list`
 List all saved articles
 
-- `article read <ids/ranges>`
+- `article read NUM [NUM-NUM]`
 Read specified articles (example: article read 1-3,5,7-10)
 
 - `article read *`
 Read ALL articles
 
-- `article open <ids/ranges>`
+- `article open NUM [NUM-NUM]`
 Open specified articles (example: article open 1-3,5,7-10)
 
-- `article speed <value>`
+- `article speed NUM`
 Set playback speed (e.g., article speed 1.5)
 
-- `article <ids/ranges> -`
+- `article - NUM [NUM-NUM] -`
 Remove specific articles
 
 - `article * -`
 Remove ALL articles
 
 #### RSS Commands
-Usage: rss fetch <num> <feed_id|...|*> 
-
-
 - `rss list`
 List all RSS feed sources
 
-- `rss fetch <num> <id> [<id> ...]`
-Fetch <num> of articles from given feed
+- `rss fetch NUM [NUM-NUM]`
+Fetch NUM of articles from given feed
 
-- `rss fetch * <id> [<id> ...]`
-Fetch <num> from all articles
+- `rss fetch * NUM [NUM-NUM]`
+Fetch NUM from all articles
 
-- `rss - <id>`
+- `rss - NUM`
 Remove a feed by ID
 
-- `rss add <url1> [<url2> ...]`
+- `rss add URL [URL URL]`
 Add a new RSS feed
 
 #### URL Commands
-- `url add <article_url>`
+- `url add URL`
 Add an article manually via its direct URL
 
 #### Utility Commands
