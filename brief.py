@@ -233,7 +233,7 @@ class BriefShell(cmd.Cmd):
                     print(f"No article found with ID {art_id}")
             if removed_any:
                 self.conn.commit()
-                self.renumber_ids()
+                self.renumber_ids("article")
                 self.reset_sqlite_autoincrement()
 
         # List article
