@@ -316,21 +316,20 @@ class BriefShell(cmd.Cmd):
                 return
             total = len(articles_to_read)
             for idx, article_id in enumerate(articles_to_read, 1):
-                c.execute("SELECT title, source, content, publish_date FROM article WHERE id = ?", (article_id,))
+                c.execute("SELECT title, source, content, publish_date, url FROM article WHERE id = ?", (article_id,))
                 row = c.fetchone()
                 if not row:
                     print(f"No article found with ID {article_id}")
                     continue
-                title, source, content, publish_date = row
+                title, source, content, publish_date, url = row
                 site_name = urlparse(source).hostname or "(unknown website)"
                 if site_name.startswith("www."):
                     site_name = site_name[4:]
-                if not content or content.strip() == "":
-                    print(f"Article ID {article_id} content empty")
-                    continue
                 print(f"Title: {title}")
-                print(f"Date: {publish_date if publish_date else '(unknown)'}")
+                print(f"Date: {publish_date}")
                 print(f"Website: {site_name}")
+                if source != url:
+                    print(f"Feed: {source}")
                 print(f"Reading article {idx} / {total} (ID {article_id})...")
                 temp_filename = self.write_temp_file(content)
                 try:
@@ -345,7 +344,7 @@ class BriefShell(cmd.Cmd):
                 finally:
                     os.remove(temp_filename)
                 if delete_after_read:
-                    delete_articles([article_id]) 
+                    delete_articles([article_id])
             return
 
         # Open article
