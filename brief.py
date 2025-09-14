@@ -313,6 +313,7 @@ class BriefShell(cmd.Cmd):
                 print("No valid article IDs to read")
                 return
             total = len(articles_to_read)
+            deleted_count = 0
             for idx, article_id in enumerate(articles_to_read, 1):
                 c.execute("SELECT title, source, content, publish_date, url FROM article WHERE id = ?", (article_id,))
                 row = c.fetchone()
@@ -323,8 +324,16 @@ class BriefShell(cmd.Cmd):
                 site_name = urlparse(source).hostname or "(unknown website)"
                 if site_name.startswith("www."):
                     site_name = site_name[4:]
+                if publish_date:
+                    try:
+                        dt = datetime.datetime.strptime(publish_date, "%Y-%m-%d")
+                        publish_str = dt.strftime("%m/%d/%Y")
+                    except Exception:
+                        publish_str = publish_date
+                else:
+                    publish_str = "(unknown)"
                 print(f"Title: {title}")
-                print(f"Date: {publish_date}")
+                print(f"Date: {publish_str}")
                 print(f"Website: {site_name}")
                 if source != url:
                     print(f"Feed: {source}")
@@ -342,8 +351,16 @@ class BriefShell(cmd.Cmd):
                 finally:
                     os.remove(temp_filename)
                 if delete_after_read:
-                    delete_articles([article_id])
+                    c.execute("DELETE FROM article WHERE id = ?", (article_id,))
+                    self.conn.commit()
+                    deleted_count += 1
+            if delete_after_read:
+                self.renumber_ids("article")
+                self.reset_sqlite_autoincrement()
+                print(f"Deleted {deleted_count} article(s)")
             return
+
+
 
         # Open article
         elif cmd == "open":
