@@ -39,7 +39,7 @@ The following Python packages are required for brief to work:
 - `pyyaml`
 - `cssselect`
 - `Pillow`
-
+- `python-dateutil`
 ---
 
 ## Getting Started

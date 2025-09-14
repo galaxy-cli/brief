@@ -10,9 +10,11 @@ import re
 import sys
 import itertools
 import importlib.util
+import datetime
+from dateutil import parser as dateutil_parser
 
 
-PIP_PACKAGE_TO_MODULE = {"feedparser": "feedparser", "newspaper3k": "newspaper", "lxml_html_clean": "lxml_html_clean",  "pyyaml": "yaml", "cssselect": "cssselect", "Pillow": "PIL"}
+PIP_PACKAGE_TO_MODULE = {"feedparser": "feedparser", "newspaper3k": "newspaper", "lxml_html_clean": "lxml_html_clean",  "pyyaml": "yaml", "cssselect": "cssselect", "Pillow": "PIL", "python-dateutil": "dateutil"}
 
 def check_apt_dependencies(packages):
     missing = []
@@ -32,7 +34,7 @@ def check_pip_dependencies(packages):
 
 def install_packages():
     apt_packages = ["git", "festival", "xsel","python3-pip", "libxml2-dev", "libxslt1-dev", "python3-dev", "libjpeg-dev", "zlib1g-dev", "build-essential", "python3-gi", "python3-gi-cairo", "gir1.2-gtk-4.0"]
-    pip_packages = ["feedparser","newspaper3k", "lxml_html_clean", "pyyaml", "cssselect", "Pillow"]
+    pip_packages = ["feedparser","newspaper3k", "lxml_html_clean", "pyyaml", "cssselect", "Pillow", "python-dateutil"]
 
     missing_apt = check_apt_dependencies(apt_packages)
     if missing_apt:
@@ -203,10 +205,43 @@ class BriefShell(cmd.Cmd):
         return tf.name
 
     @staticmethod
+    def parse_publish_date(date_source):
+        if hasattr(date_source, 'published_parsed') and date_source.published_parsed:
+            try:
+                dt = datetime.datetime(*date_source.published_parsed[:6]).date()
+                return dt
+            except Exception:
+                pass
+        if hasattr(date_source, 'published'):
+            try:
+                dt = dateutil_parser.parse(date_source.published).date()
+                return dt
+            except Exception:
+                pass
+        if hasattr(date_source, 'publish_date') and date_source.publish_date:
+            try:
+                dt = date_source.publish_date.date()
+                return dt
+            except Exception:
+                pass
+        return None
+
+
+
+    @staticmethod
     def article_summary(a):
         site_name = urlparse(a['source']).hostname or "(unknown website)"
         site_name = site_name[4:] if site_name.startswith("www.") else site_name
-        return f"{a['id']}. {a['title']} (source: {site_name})"
+        pub = a['publish_date'] if 'publish_date' in a.keys() else None
+        pubtxt = ""
+        if pub:
+            try:
+                dt = datetime.datetime.strptime(pub, "%Y-%m-%d")
+                pubtxt = f"(publication date: {dt.strftime('%Y/%m/%d')}) "
+            except Exception:
+                pubtxt = f"(publication date: {pub}) "
+        return f"{a['id']}. {a['title']} {pubtxt}(source: {site_name})"
+
 
 
 
@@ -243,7 +278,7 @@ class BriefShell(cmd.Cmd):
             if hasattr(self, "reset_sqlite_autoincrement"):
                 self.reset_sqlite_autoincrement()
             c = self.conn.cursor()
-            c.execute("SELECT id, title, source FROM article ORDER BY id ASC")
+            c.execute("SELECT id, title, source, publish_date FROM article ORDER BY id ASC")
             articles = c.fetchall()
             if not articles:
                 print("No articles saved yet")
@@ -286,7 +321,7 @@ class BriefShell(cmd.Cmd):
                 if not row:
                     print(f"No article found with ID {article_id}")
                     continue
-                title, source, content, _ = row
+                title, source, content, publish_date = row
                 site_name = urlparse(source).hostname or "(unknown website)"
                 if site_name.startswith("www."):
                     site_name = site_name[4:]
@@ -294,6 +329,7 @@ class BriefShell(cmd.Cmd):
                     print(f"Article ID {article_id} content empty")
                     continue
                 print(f"Title: {title}")
+                print(f"Date: {publish_date if publish_date else '(unknown)'}")
                 print(f"Website: {site_name}")
                 print(f"Reading article {idx} / {total} (ID {article_id})...")
                 temp_filename = self.write_temp_file(content)
@@ -444,10 +480,12 @@ class BriefShell(cmd.Cmd):
                             title = article.title
                             content = article.text
                             fetched_date = article.publish_date.isoformat() if article.publish_date else None
+                            publish_date_obj = self.parse_publish_date(entry)
+                            publish_date = publish_date_obj.isoformat() if publish_date_obj else None
                             c.execute("""
-                                INSERT INTO article (url, title, content, source, fetched_date)
-                                VALUES (?, ?, ?, ?, ?)
-                            """, (url, title, content, feed_url, fetched_date))
+                            INSERT INTO article (url, title, content, source, fetched_date, publish_date)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                            """, (url, title, content, feed_url, fetched_date, publish_date))
                             self.conn.commit()
                             print(f"Saved article: {title}")
                             count += 1
@@ -544,10 +582,12 @@ class BriefShell(cmd.Cmd):
                 title = article.title
                 content = article.text
                 fetched_date = article.publish_date.isoformat() if article.publish_date else None
+                publish_date_obj = self.parse_publish_date(article)
+                publish_date = publish_date_obj.isoformat() if publish_date_obj else None
                 c.execute("""
-                    INSERT INTO article (url, title, content, source, fetched_date)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (url, title, content, url, fetched_date))
+                INSERT INTO article (url, title, content, source, fetched_date, publish_date)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """, (url, title, content, url, fetched_date, publish_date))
                 self.conn.commit()
                 print(f"Saved article: {title}")
             except Exception as e:
