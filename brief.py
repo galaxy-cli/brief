@@ -226,8 +226,6 @@ class BriefShell(cmd.Cmd):
                 pass
         return None
 
-
-
     @staticmethod
     def article_summary(a):
         site_name = urlparse(a['source']).hostname or "(unknown website)"
@@ -237,10 +235,10 @@ class BriefShell(cmd.Cmd):
         if pub:
             try:
                 dt = datetime.datetime.strptime(pub, "%Y-%m-%d")
-                pubtxt = f"(publication date: {dt.strftime('%Y/%m/%d')}) "
+                pubtxt = f"{dt.strftime('%m/%d/%Y')}) "
             except Exception:
-                pubtxt = f"(publication date: {pub}) "
-        return f"{a['id']}. {a['title']} {pubtxt}(source: {site_name})"
+                pubtxt = f"{pub} "
+        return f"{a['id']}. {a['title']} (publication: {pubtxt}) (source: {site_name})"
 
 
 
