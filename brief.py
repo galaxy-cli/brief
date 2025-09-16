@@ -238,7 +238,7 @@ class BriefShell(cmd.Cmd):
                 pubtxt = f"{dt.strftime('%m/%d/%Y')}) "
             except Exception:
                 pubtxt = f"{pub} "
-        return f"{a['id']}. {a['title']} (publication: {pubtxt}) (source: {site_name})"
+        return f"{a['id']}. {a['title']} (publication: {pubtxt} (source: {site_name})"
 
 
 
