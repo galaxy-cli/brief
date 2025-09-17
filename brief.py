@@ -189,13 +189,17 @@ class BriefShell(cmd.Cmd):
     @staticmethod
     def renumber_ids(table_name):
         c = shell.conn.cursor()
-        c.execute(f"SELECT id FROM {table_name} ORDER BY id ASC")
+        c.execute(f"SELECT id FROM {table_name} ORDER BY publish_date ASC")
         rows = c.fetchall()
-        for new_id, row in enumerate(rows, start=1):
+        offset = 10000
+        for row in rows:
             old_id = row['id']
-            if old_id != new_id:
-                c.execute(f"UPDATE {table_name} SET id = ? WHERE id = ?", (new_id, old_id))
+            c.execute(f"UPDATE {table_name} SET id = ? WHERE id = ?", (old_id + offset, old_id))
+        for new_id, row in enumerate(rows, start=1):
+            temp_id = row['id'] + offset
+            c.execute(f"UPDATE {table_name} SET id = ? WHERE id = ?", (new_id, temp_id))
         shell.conn.commit()
+
 
     @staticmethod
     def write_temp_file(content):
@@ -276,7 +280,7 @@ class BriefShell(cmd.Cmd):
             if hasattr(self, "reset_sqlite_autoincrement"):
                 self.reset_sqlite_autoincrement()
             c = self.conn.cursor()
-            c.execute("SELECT id, title, source, publish_date FROM article ORDER BY id ASC")
+            c.execute("SELECT id, title, source, publish_date FROM article ORDER BY publish_date ASC")
             articles = c.fetchall()
             if not articles:
                 print("No articles saved yet")
@@ -292,7 +296,7 @@ class BriefShell(cmd.Cmd):
             ids_args = args[1:]
             c = self.conn.cursor()
             if ids_args == ["*"]:
-                c.execute("SELECT id FROM article ORDER BY id ASC")
+                c.execute("SELECT id FROM article ORDER BY publish_date ASC")
                 articles_to_read = [r['id'] for r in c.fetchall()]
             else:
                 id_list = []
