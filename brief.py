@@ -238,7 +238,7 @@ class BriefShell(cmd.Cmd):
                 pubtxt = f"{dt.strftime('%m/%d/%Y')}) "
             except Exception:
                 pubtxt = f"{pub} "
-        return f"{a['id']}. {a['title']} (publication: {pubtxt} (source: {site_name})"
+        return f"{a['id']}. {a['title']} (publication: {pubtxt}(source: {site_name})"
 
 
 
@@ -332,7 +332,7 @@ class BriefShell(cmd.Cmd):
                         publish_str = publish_date
                 else:
                     publish_str = "(unknown)"
-                print(f"Title: {title}")
+                print(f"\nTitle: {title}")
                 print(f"Date: {publish_str}")
                 print(f"Website: {site_name}")
                 if source != url:
