@@ -1,7 +1,5 @@
 import cmd
 import sqlite3
-import feedparser
-from newspaper import Article
 import subprocess
 import tempfile
 import os
@@ -65,6 +63,8 @@ def install_packages():
             print("Cannot continue without required pip packages")
             sys.exit(1)
 
+import feedparser
+from newspaper import Article
 
 
 
