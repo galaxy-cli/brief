@@ -652,13 +652,10 @@ class BriefShell(cmd.Cmd):
         self.conn.close()
         return True
 
-def activate_venv(venv_path):
-    os.environ["VIRTUAL_ENV"] = venv_path
-    os.environ["PATH"] = os.path.join(venv_path, "bin") + os.pathsep + os.environ.get("PATH", "")
+
+
 
 if __name__ == '__main__':
-    venv_dir = os.path.expanduser("~/.venv")
-    activate_venv(venv_dir)
     install_packages()
     shell = BriefShell()
     while True:
