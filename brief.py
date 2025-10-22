@@ -462,7 +462,8 @@ class BriefShell(cmd.Cmd):
                 return
             feed_ids = args[2:]
             if feed_ids == ["*"]:
-                positions = [int(p) for p in feed_positions]
+                c.execute("SELECT id FROM rss_feeds ORDER BY id ASC")
+                positions = [row['id'] for row in c.fetchall()]
                 placeholders = ','.join('?' for _ in positions)
                 c.execute(f"SELECT id, url FROM rss_feeds WHERE id IN ({placeholders}) ORDER BY id ASC", positions)
                 feeds = c.fetchall()
