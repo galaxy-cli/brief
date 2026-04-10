@@ -227,7 +227,7 @@ class BriefShell(cmd.Cmd):
             print("Commands: fetch, add, list, -")
             return
         
-        cmd = parts[0]S
+        cmd = parts[0]
 
         # 1. Fetch
         if cmd == "fetch" and len(parts) >= 3:
