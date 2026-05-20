@@ -25,7 +25,7 @@ pip install -r requirements.txt
 ## Usage
 Run the script to enter the interactive shell:
 ```
-python3 brief.py
+brief
 ```
 ## Common Commandsrss list: 
 View your saved feeds.
