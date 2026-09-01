@@ -21,14 +21,14 @@ class BriefShell(cmd.Cmd):
 
     def __init__(self):
         super().__init__()
-        self.last_list = []      
-        self.last_rss_list = []  
+        self.last_list = []
+        self.last_rss_list = []
         self.conn = sqlite3.connect(DB_FILENAME, isolation_level=None)
         self.conn.row_factory = sqlite3.Row
-        
+
         self.conn.execute("CREATE TABLE IF NOT EXISTS rss_feeds (id INTEGER PRIMARY KEY, url TEXT UNIQUE)")
         self.conn.execute("CREATE TABLE IF NOT EXISTS article (id INTEGER PRIMARY KEY, url TEXT UNIQUE, title TEXT, content TEXT, source TEXT, fetched_date TEXT, publish_date TEXT)")
-        
+
         self.refresh_article_list()
         self.refresh_rss_list()
 
@@ -45,7 +45,7 @@ class BriefShell(cmd.Cmd):
     def _resolve_indices(self, id_str, target_list):
         if id_str == "*":
             return target_list
-        
+
         resolved_indices = []
         for part in id_str.replace(',', ' ').split():
             try:
@@ -55,7 +55,7 @@ class BriefShell(cmd.Cmd):
                         resolved_indices.extend(range(start, end + 1))
                 else:
                     resolved_indices.append(int(part))
-            except ValueError: 
+            except ValueError:
                 continue
 
         return [target_list[idx - 1] for idx in resolved_indices if 0 < idx <= len(target_list)]
@@ -69,12 +69,12 @@ class BriefShell(cmd.Cmd):
     def delete_items(self, table, id_str):
         if table not in ["article", "rss_feeds"]:
             return
-            
+
         ids = self.parse_ids(id_str) if table == "article" else self.parse_feed_ids(id_str)
-        if not ids: 
+        if not ids:
             print("No valid IDs identified for deletion.")
             return
-            
+
         print(f"Deleting IDs from {table}: {ids}")
         if input("Confirm? [y/N] ").lower() == 'y':
             placeholders = ','.join(['?'] * len(ids))
@@ -85,7 +85,7 @@ class BriefShell(cmd.Cmd):
     def parse_date(src):
         for attr in ['published_parsed', 'publish_date', 'published']:
             val = getattr(src, attr, None)
-            if not val: 
+            if not val:
                 continue
             try:
                 if hasattr(val, 'tm_year'):
@@ -94,7 +94,7 @@ class BriefShell(cmd.Cmd):
                     return val.date()
                 if isinstance(val, str):
                     return datetime.date.fromisoformat(val[:10])
-            except (ValueError, TypeError): 
+            except (ValueError, TypeError):
                 continue
         return None
 
@@ -104,7 +104,7 @@ class BriefShell(cmd.Cmd):
             parts = a['source'].split('/')
             if len(parts) > 2:
                 site = parts[2].replace("www.", "")
-        
+
         date_str = f"({a['publish_date']}) " if a['publish_date'] else ""
         return f"{ui_index}. {a['title']} {date_str}[{site}]"
 
@@ -114,9 +114,9 @@ class BriefShell(cmd.Cmd):
                 return
 
             art = Article(url)
-            art.download()  
+            art.download()
             art.parse()
-            
+
             extracted_date = self.parse_date(art)
             pub_date_str = extracted_date.isoformat() if extracted_date else None
 
@@ -124,20 +124,20 @@ class BriefShell(cmd.Cmd):
                 (url, title, content, source, publish_date) 
                 VALUES (?, ?, ?, ?, ?)""", 
                 (url, art.title, art.text, source_url or url, pub_date_str))
-            
+
             print(f"  + Saved: {art.title[:50]}...")
             self.refresh_article_list()
-            
+
         except Exception as e:
             print(f"  ! Failed to parse {url}: {e}")
-  
+
 
     def do_rss(self, arg):
         """Commands: rss [list|add URL|fetch NUM NUM|- NUM]"""
         parts = arg.split()
         if not parts:
             return
-        
+
         cmd = parts[0]
         args = parts[1:]
 
@@ -165,7 +165,7 @@ class BriefShell(cmd.Cmd):
             except ValueError:
                 print("Error: Fetch count must be an integer.")
                 return
-            
+
             ids = self.parse_feed_ids(" ".join(args[1:]))
             if not ids:
                 print("No valid feed IDs specified.")
@@ -194,21 +194,21 @@ class BriefShell(cmd.Cmd):
         parts = arg.split()
         if not parts:
             return
-        
+
         first_arg = parts[0]
         is_implicit_id = (
-            first_arg.isdigit() or 
-            first_arg == "*" or 
+            first_arg.isdigit() or
+            first_arg == "*" or
             ('-' in first_arg and first_arg.replace('-', '').isdigit())
         )
-        
+
         if is_implicit_id:
             cmd = "audio"
             args = parts
         else:
             cmd = first_arg
             args = parts[1:]
-        
+
         if cmd == "list":
             rows = self.query("SELECT * FROM article ORDER BY publish_date ASC").fetchall()
             if not rows:
@@ -221,7 +221,7 @@ class BriefShell(cmd.Cmd):
         elif cmd in ["audio", "show"]:
             cleanup_after = parts[-1] == "-" if parts else False
             clean_args = " ".join(args[:-1]) if cleanup_after else " ".join(args)
-                
+
             ids = self.parse_ids(clean_args)
             if not ids:
                 print("No valid article IDs specified.")
@@ -229,22 +229,22 @@ class BriefShell(cmd.Cmd):
 
             for i, aid in enumerate(ids, 1):
                 art = self.query("SELECT * FROM article WHERE id=?", (aid,)).fetchone()
-                if not art: 
+                if not art:
                     continue
-                
+
                 print(f"[{i}/{len(ids)}] {art['title']} (Close window to skip/next)")
                 full_text = f"{art['title']}\n\n{art['content']}"
-                
+
                 tmp_path = None
                 proc_yad = None
                 proc_tts = None
-                
+
                 try:
                     proc_yad = subprocess.Popen([
-                        "yad", "--text-info", "--title", art['title'], 
+                        "yad", "--text-info", "--title", art['title'],
                         "--width=800", "--height=600", "--wrap", "--center"
                     ], stdin=subprocess.PIPE, text=True, stderr=subprocess.DEVNULL)
-                    
+
                     try:
                         proc_yad.stdin.write(full_text)
                         proc_yad.stdin.close()
@@ -256,9 +256,9 @@ class BriefShell(cmd.Cmd):
                         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt', encoding='utf-8') as tf:
                             tf.write(full_text)
                             tmp_path = tf.name
-                        
+
                         proc_tts = subprocess.Popen([TTS_SCRIPT, "-f", tmp_path], stderr=subprocess.DEVNULL)
-                    
+
                     proc_yad.wait()
 
                 except KeyboardInterrupt:
@@ -267,16 +267,16 @@ class BriefShell(cmd.Cmd):
                     if proc_tts and proc_tts.poll() is None:
                         proc_tts.terminate()
                         proc_tts.wait()
-                        
+
                     if tmp_path and os.path.exists(tmp_path):
                         try:
                             os.remove(tmp_path)
                         except OSError:
                             pass
-                            
-                    if cleanup_after: 
+
+                    if cleanup_after:
                         self.query("DELETE FROM article WHERE id=?", (aid,))
-            
+
             if cleanup_after:
                 self.refresh_article_list()
 
