@@ -1,63 +1,106 @@
 # Brief
 
-A minimal, lightning-fast CLI RSS reader and article scraper that pipes full-text content into a clean visual window (`yad`) and fluidly converts text to speech (`ftts`).
+A self-contained, terminal-based RSS reader. Add feeds, pull in new articles,
+and read them — either in a popup window or read aloud via text-to-speech —
+all backed by a local SQLite database.
 
 ## Features
 
-* **Memory Pipes**: Streams article data straight to UI windows without creating temporary files on your disk.
-* **Implicit Commands**: Type `read 1` or `read *` directly—no action keywords needed.
-* **Batch Operations**: Read arrays or entire lists sequentially, with automatic deletion modifiers (e.g., `read * -`).
-* **Instant Skip**: Closing the text window instantly terminates the speech background worker and queues up the next story.
+- **Self-contained**: no separate setup script or requirements file. On
+  first run, `brief` creates its own virtual environment, installs its own
+  dependencies into it, and re-launches itself inside it automatically.
+- **RSS feed management**: add, list, and remove feeds.
+- **Article fetching**: pulls the latest entries from a feed and extracts
+  clean article text via `newspaper3k`, de-duplicated by URL.
+- **Direct URL saving**: save a single article without going through a feed.
+- **Flexible reading modes**: view an article in a popup window, optionally
+  with it read aloud via a TTS script, with automatic cleanup afterward.
+- **Flexible ID selection**: commands accept a single number, a range
+  (`1-3`), a comma/space-separated list (`1,3,5`), or `*` for everything.
+- **Persistent storage**: the database lives at a fixed location, so it
+  doesn't matter what directory you launch `brief` from.
 
----
-
-## Dependencies
-
-Ensure you have the core Python modules and Linux utility tools installed before starting:
+## Installation
 
 ```bash
-pip install feedparser newspaper3k
-sudo apt install yad
+git clone <this-repo-url>
+cd brief
+chmod +x brief
 ```
 
----
+Put it somewhere on your `$PATH`, e.g.:
+```bash
+ln -s "$(pwd)/brief" ~/.local/bin/brief
+```
 
-## Installation & Shortcuts
+That's it — no `pip install` step required up front. The first time you run
+`brief`, it will:
+1. Create a virtual environment at `~/.local/share/brief/venv`
+2. Install its dependencies into it (`feedparser`, `newspaper3k`,
+   `lxml_html_clean`)
+3. Re-launch itself inside that environment
 
-Run the script seamlessly from any folder on your machine by setting up a terminal shell alias. 
+Every run after that starts straight into the shell. If the managed
+environment is ever missing a dependency (e.g. interrupted install), `brief`
+detects it automatically and reinstalls on the next run — no manual cleanup
+needed.
 
-1. Open your configuration profile:
-   ```bash
-   nano ~/.bashrc
-   ```
-2. Paste your direct executable link at the bottom of the file (replace with your exact path):
-   ```bash
-   alias brief="\$HOME/.venv/bin/python3 /path/to/your/brief_script.py"
-   ```
-3. Reload your terminal settings:
-   ```bash
-   source ~/.bashrc
-   ```
+## Usage
 
----
+Run `brief` to drop into its interactive shell:
 
-## Command Reference ⌨
+```
+$ brief
+Welcome to Brief - CLI RSS News
+Type 'help' or '?' for commands.
 
-Launch the shell by typing `brief` in your terminal workspace.
+(Brief)
+```
 
-### RSS Feeds (`rss`)
-* `rss add <URL>` — Add a new feed to the local SQLite storage.
-* `rss list` — View all subscribed feed URLs.
-* `rss fetch <NUM> <IDs/*>` — Fetch the top X articles from chosen feeds or all (`*`).
-* `rss - <IDs>` — Permanently unsubscribe from a feed database index.
+### Feeds
+| Command | Description |
+|---|---|
+| `rss list` | List all configured feeds, numbered |
+| `rss add <URL> [URL...]` | Add one or more feed URLs |
+| `rss fetch <N> <IDS>` | Fetch the latest N entries from the given feed(s) and save them as articles |
+| `rss - <IDS>` | Remove feed(s) by ID (asks for confirmation) |
 
-### Reading Articles (`read`)
-* `read list` — Display all gathered articles sequentially.
-* `read <ID>` — Launch visual reader window and start the speech text engine.
-* `read *` — Queue and read all unread collected articles back-to-back.
-* `read show <ID>` — Open the reading display window quietly without triggering audio.
-* `read <ID> -` — Read the article and immediately delete it upon closing the browser window.
-* `read - <IDs>` — Force drop target article indexes out of the database cache.
+### Articles
+| Command | Description |
+|---|---|
+| `read list` | List all saved articles, numbered |
+| `read <IDS>` or `read *` | Read article(s) aloud via TTS while displaying the text in a popup |
+| `read show <IDS>` | Display article(s) in a popup, without audio |
+| `read <IDS> -` | Same as above, then delete the article(s) afterward |
+| `read - <IDS>` | Delete article(s) without reading |
+| `url add <URL>` | Download, parse, and save a single article directly |
 
-### Web Links (`url`)
-* `url add <URL>` — Instantly scrape a single detached web article link outside of your RSS lists.
+### Other
+| Command | Description |
+|---|---|
+| `help [command]` | Show help |
+| `exit` (or Ctrl+D) | Quit |
+
+### ID Selection Syntax
+Anywhere a command takes `<IDS>`, it's referring to the position number from
+the most recent `rss list` or `read list`:
+- a single number: `3`
+- a range: `1-3`
+- several, comma- or space-separated: `1,3,5` or `1 3 5`
+- everything: `*`
+
+## Requirements
+
+- Python 3 with the `venv` module available (on Debian/Ubuntu, if missing:
+  `sudo apt install python3-venv`)
+- [`yad`](https://github.com/v1cont/yad) for the popup reading window
+  (`sudo apt install yad`)
+- A text-to-speech script at `~/.local/bin/ftts`, used when reading an
+  article aloud (`read <IDS>`). Reading via `read show <IDS>` works without
+  it.
+
+## Data Storage
+
+Everything `brief` creates lives under `~/.local/share/brief/`:
+- `venv/` — the managed Python environment
+- `news.db` — the SQLite database of feeds and saved articles

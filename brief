@@ -1,19 +1,99 @@
 #!/usr/bin/env python3
+"""Brief - a self-contained CLI RSS reader.
+
+This script is self-bootstrapping: on first run it creates its own
+virtual environment under ~/.local/share/brief/venv, installs its
+dependencies into it, and re-executes itself using that venv's Python.
+No separate setup.sh or requirements.txt needed -- REQUIRED below is
+the single source of truth for what gets installed.
+"""
+import os
+import sys
+import subprocess
+
+APP_DIR = os.path.expanduser("~/.local/share/brief")
+VENV_DIR = os.path.join(APP_DIR, "venv")
+DB_PATH = os.path.join(APP_DIR, "news.db")
+REQUIRED = [
+    "feedparser",
+    "newspaper3k",
+    # newspaper3k imports lxml.html.clean directly, but lxml 5.2+ split that
+    # submodule out into this separate package. Without it, "import newspaper"
+    # itself raises an ImportError on any modern lxml -- not something a
+    # plain reinstall of newspaper3k alone fixes, since pip succeeds either way.
+    "lxml_html_clean",
+]
+
+
+def _dependencies_installed(venv_python):
+    """Check whether the required packages actually import inside the
+    venv. More reliable than just checking that the venv directory
+    exists -- venv creation can succeed while a later 'pip install'
+    fails partway, leaving a venv with nothing installed in it, which
+    would otherwise be mistaken for 'already set up' on every run after."""
+    try:
+        subprocess.run(
+            [venv_python, "-c", "import feedparser, newspaper"],
+            check=True, capture_output=True,
+        )
+        return True
+    except subprocess.CalledProcessError:
+        return False
+
+
+def _bootstrap():
+    """Ensure we're running inside our own dedicated venv with
+    dependencies installed, creating the venv and/or (re)installing
+    dependencies only when actually needed, then re-exec this same
+    script using the venv's Python interpreter. Does not return --
+    either replaces the process via os.execv, or exits on a setup
+    failure."""
+    venv_python = os.path.join(VENV_DIR, "bin", "python3")
+
+    if not os.path.exists(venv_python):
+        os.makedirs(APP_DIR, exist_ok=True)
+        print(f"🔧 First run: creating environment at {VENV_DIR}...")
+        try:
+            subprocess.run([sys.executable, "-m", "venv", VENV_DIR], check=True)
+        except subprocess.CalledProcessError:
+            print("Error: Failed to create a virtual environment.")
+            print("On Debian/Ubuntu you may need: sudo apt install python3-venv")
+            sys.exit(1)
+
+    if not _dependencies_installed(venv_python):
+        print("📦 Installing dependencies...")
+        try:
+            subprocess.run(
+                [venv_python, "-m", "pip", "install", "--upgrade", "pip", *REQUIRED],
+                check=True,
+            )
+        except subprocess.CalledProcessError:
+            print("Error: Failed to install dependencies.")
+            sys.exit(1)
+
+    os.environ["BRIEF_BOOTSTRAPPED"] = "1"
+    os.execv(venv_python, [venv_python, os.path.abspath(__file__), *sys.argv[1:]])
+
+
+if os.environ.get("BRIEF_BOOTSTRAPPED") != "1":
+    _bootstrap()
+    sys.exit(1)  # unreachable: _bootstrap() always execs or exits above
+
 import cmd
 import sqlite3
-import subprocess
-import sys
 import datetime
-import os
 
 try:
     import feedparser
     from newspaper import Article
 except ImportError:
-    print("Error: Missing dependencies. Run 'pip install feedparser newspaper3k'")
+    # Should be unreachable since the bootstrap step above guarantees these
+    # are installed, but kept as a safety net in case the venv was manually
+    # tampered with or packages were later uninstalled.
+    print("Error: Dependencies missing or corrupted inside the managed environment.")
+    print(f"Try deleting {VENV_DIR} and re-running 'brief' to rebuild it.")
     sys.exit(1)
 
-DB_FILENAME = "news.db" 
 TTS_SCRIPT = os.path.expanduser("~/.local/bin/ftts")
 
 class BriefShell(cmd.Cmd):
@@ -23,7 +103,7 @@ class BriefShell(cmd.Cmd):
         super().__init__()
         self.last_list = []
         self.last_rss_list = []
-        self.conn = sqlite3.connect(DB_FILENAME, isolation_level=None)
+        self.conn = sqlite3.connect(DB_PATH, isolation_level=None)
         self.conn.row_factory = sqlite3.Row
 
         self.conn.execute("CREATE TABLE IF NOT EXISTS rss_feeds (id INTEGER PRIMARY KEY, url TEXT UNIQUE)")
